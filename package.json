@@ -5,9 +5,20 @@
   "main": "node_modules/expo/AppEntry.js",
   "scripts": {
     "start": "expo start",
-    "android": "expo start --android",
-    "ios": "expo start --ios",
-    "web": "expo start --web"
+    "dev:android": "expo start --android",
+    "dev:ios": "expo start --ios",
+    "dev:web": "expo start --web",
+    "test:local": "expo start",
+    "build:apk": "eas build --platform android --profile local-android-apk",
+    "build:ipa": "eas build --platform ios --profile local-ios-device",
+    "build:ipa-sim": "eas build --platform ios --profile local-ios-simulator",
+    "build:aab-android": "eas build --platform android --profile production-android-aab",
+    "build:aab-ios": "eas build --platform ios --profile production-ios-aab",
+    "build:playstore": "eas build --platform android --profile production-android-aab",
+    "build:appstore": "eas build --platform ios --profile production-ios-ipa",
+    "build:preview": "eas build --platform all --profile preview",
+    "submit:playstore": "eas submit --platform android --latest",
+    "submit:appstore": "eas submit --platform ios --latest"
   },
   "dependencies": {
     "expo": "~49.0.0",

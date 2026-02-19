@@ -3,6 +3,7 @@ import { NavigationContainer } from '@react-navigation/native';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { ThemeProvider } from './src/theme/ThemeContext';
+import { WorkspaceProvider } from './src/context/WorkspaceContext';
 import MainTabs from './src/navigation/MainTabs';
 import AuthStack from './src/navigation/AuthStack';
 import { AuthProvider, useAuth } from './src/context/AuthContext';
@@ -27,9 +28,11 @@ export default function App() {
     <SafeAreaProvider>
       <AuthProvider>
         <ThemeProvider>
-          <NavigationContainer>
-            <RootNavigator />
-          </NavigationContainer>
+          <WorkspaceProvider>
+            <NavigationContainer>
+              <RootNavigator />
+            </NavigationContainer>
+          </WorkspaceProvider>
         </ThemeProvider>
       </AuthProvider>
     </SafeAreaProvider>

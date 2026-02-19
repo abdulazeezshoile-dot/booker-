@@ -9,17 +9,18 @@ const TX = [
 ];
 
 export default function TransactionsScreen() {
-  const { theme } = useTheme();
+  const themeContext = useTheme();
+  const theme = themeContext.theme;
   return (
-    <View style={[styles.container, { backgroundColor: theme.background }]}>
+    <View style={[styles.container, { backgroundColor: theme.colors.background }]}>
       <FlatList data={TX} keyExtractor={(t) => t.id} contentContainerStyle={{ padding: 12 }} renderItem={({ item }) => (
         <Card>
           <View style={{ flexDirection: 'row', justifyContent: 'space-between' }}>
             <View>
-              <Text style={{ color: theme.text, fontWeight: '700' }}>{item.type}</Text>
+              <Text style={{ color: theme.colors.textPrimary, fontWeight: '700' }}>{item.type}</Text>
               <Subtle>{item.branch} • {item.date}</Subtle>
             </View>
-            <Text style={{ color: theme.text, fontWeight: '700' }}>${item.amount}</Text>
+            <Text style={{ color: theme.colors.textPrimary, fontWeight: '700' }}>${item.amount}</Text>
           </View>
         </Card>
       )} ListEmptyComponent={() => <View style={{ padding: 20 }}><Subtle>No transactions</Subtle></View>} />

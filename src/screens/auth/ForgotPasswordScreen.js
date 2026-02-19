@@ -3,14 +3,15 @@ import { View, Text, TextInput, TouchableOpacity, StyleSheet } from 'react-nativ
 import { useTheme } from '../../theme/ThemeContext';
 
 export default function ForgotPasswordScreen({ navigation }) {
-  const { theme } = useTheme();
+  const themeContext = useTheme();
+  const theme = themeContext.theme;
   return (
-    <View style={[styles.container, { backgroundColor: theme.background }]}>
-      <Text style={[styles.title, { color: theme.text }]}>Reset Password</Text>
-      <View style={[styles.card, { backgroundColor: theme.card }]}>
-        <Text style={{ color: theme.muted }}>Enter your account email</Text>
-        <TextInput style={[styles.input, { color: theme.text }]} placeholder="you@store.com" placeholderTextColor={theme.muted} />
-        <TouchableOpacity style={[styles.button, { backgroundColor: theme.primary }]} onPress={() => navigation.goBack()}>
+    <View style={[styles.container, { backgroundColor: theme.colors.background }]}>
+      <Text style={[styles.title, { color: theme.colors.textPrimary }]}>Reset Password</Text>
+      <View style={[styles.card, { backgroundColor: theme.colors.card }]}>
+        <Text style={{ color: theme.colors.textSecondary }}>Enter your account email</Text>
+        <TextInput style={[styles.input, { color: theme.colors.textPrimary }]} placeholder="you@store.com" placeholderTextColor={theme.colors.textSecondary} />
+        <TouchableOpacity style={[styles.button, { backgroundColor: theme.colors.primary }]} onPress={() => navigation.goBack()}>
           <Text style={styles.buttonText}>Send reset link</Text>
         </TouchableOpacity>
       </View>

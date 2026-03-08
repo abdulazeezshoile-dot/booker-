@@ -47,24 +47,30 @@ export const WorkspaceProvider = function({ children }) {
     }
   };
 
+  const loadPendingActions = async () => {
+    try {
+      const stored = await AsyncStorage.getItem(OFFLINE_QUEUE_KEY);
+      if (stored) {
+        setPendingActions(JSON.parse(stored));
+      }
+    } catch (err) {
+      // ignore
+    }
+  };
+
   const persistLastSyncedAt = async (date) => {
     try {
       await AsyncStorage.setItem(LAST_SYNC_STORAGE_KEY, String(date?.getTime() ?? ''));
     } catch (err) {
-        setPendingActions(JSON.parse(stored));
-      }
+      // ignore
+    }
+  };
 
-      const lastSync = await AsyncStorage.getItem(LAST_SYNC_STORAGE_KEY);
-      if (lastSync) {
-        setLastSyncedAt(new Date(parseInt(lastSync, 10)
+  const loadLastSyncedAt = async () => {
     try {
-      const stored = await AsyncStorage.getItem(OFFLINE_QUEUE_KEY);
-      if (stored) {
       const lastSync = await AsyncStorage.getItem(LAST_SYNC_STORAGE_KEY);
       if (lastSync) {
         setLastSyncedAt(new Date(parseInt(lastSync, 10)));
-      }
-        setPendingActions(JSON.parse(stored));
       }
     } catch (err) {
       // ignore
@@ -86,6 +92,7 @@ export const WorkspaceProvider = function({ children }) {
     }
 
     setIsSyncing(true);
+
     const remaining = [];
 
     for (const action of pendingActions) {
@@ -95,20 +102,16 @@ export const WorkspaceProvider = function({ children }) {
         } else if (action.method === 'put') {
           await api.put(action.path, action.body);
         } else if (action.method === 'delete') {
-
-    const now = new Date();
-    setLastSyncedAt(now);
-    persistLastSyncedAt(now);
-
           await api.delete(action.path);
-    const now = new Date();
-    setLastSyncedAt(now);
-    persistLastSyncedAt(now);
         }
       } catch (err) {
         remaining.push(action);
       }
     }
+
+    const now = new Date();
+    setLastSyncedAt(now);
+    persistLastSyncedAt(now);
 
     setPendingActions(remaining);
     persistPendingActions(remaining);
@@ -120,23 +123,14 @@ export const WorkspaceProvider = function({ children }) {
     processPendingActions();
   };
 
-  conslastSyncedAt,
-      queueAction,
-      processPendingActions,
-    }),
-    [pendingActions.length, isSyncing, syncStatus, lastSyncedAt
-  }, [lastSyncedAt,
-      queueAction,
-      processPendingActions,
-    }),
-    [pendingActions.length, isSyncing, syncStatus, lastSyncedAt
+  const syncInfo = useMemo(
+    () => ({
       pendingCount: pendingActions.length,
       isSyncing,
-      status: syncStatus,
-      queueAction,
-      processPendingActions,
+      lastSyncedAt,
+      status: isSyncing ? 'syncing' : pendingActions.length > 0 ? 'pending' : 'synced',
     }),
-    [pendingActions.length, isSyncing, syncStatus, processPendingActions],
+    [pendingActions.length, isSyncing, lastSyncedAt],
   );
 
   const loadWorkspaces = useCallback(async () => {
@@ -174,6 +168,7 @@ export const WorkspaceProvider = function({ children }) {
   useEffect(() => {
     loadStoredWorkspaceId();
     loadPendingActions();
+    loadLastSyncedAt();
   }, []);
 
   useEffect(() => {
@@ -199,8 +194,10 @@ export const WorkspaceProvider = function({ children }) {
       setCurrentWorkspaceId,
       loading,
       syncInfo,
+      queueAction,
+      processPendingActions,
     }),
-    [workspaces, currentWorkspaceId, loading, syncInfo],
+    [workspaces, currentWorkspaceId, loading, syncInfo, queueAction, processPendingActions],
   );
 
   return <WorkspaceContext.Provider value={value}>{children}</WorkspaceContext.Provider>;

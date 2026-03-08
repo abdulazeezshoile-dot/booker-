@@ -26,11 +26,6 @@ const getDueInfo = (dueDate) => {
   if (diffDays < 0) {
     return { label: `${Math.abs(diffDays)} day(s) overdue`, overdue: true };
   }
-  return { label: `${diffDays} day(s) remaining`, overdue: false }s = due.getTime() - now.getTime();
-  const diffDays = Math.ceil(diffMs / (1000 * 60 * 60 * 24));
-  if (diffDays < 0) {
-    return { label: `${Math.abs(diffDays)} day(s) overdue`, overdue: true };
-  }
   return { label: `${diffDays} day(s) remaining`, overdue: false };
 };
 
@@ -128,9 +123,15 @@ export default function DebtScreen({ navigation }) {
           data={debts}
           keyExtractor={(item) => item.id}
           contentContainerStyle={{ padding: 16 }}
-          ListEmptyComponent={
-            <View dueInfo = getDueInfo(item.dueDate);
+          ListEmptyComponent={() => (
+            <View style={{ alignItems: 'center', marginTop: 40 }}>
+              <Text style={{ color: theme.colors.textSecondary }}>No debts yet.</Text>
+            </View>
+          )}
+          renderItem={({ item }) => {
+            const dueInfo = getDueInfo(item.dueDate);
             const isPending = item.status === 'pending';
+
             return (
               <Card style={styles.card}>
                 <View style={styles.row}>
@@ -138,12 +139,7 @@ export default function DebtScreen({ navigation }) {
                     <Text style={{ color: theme.colors.textPrimary, fontWeight: '700', fontSize: 16 }}>
                       {item.customerName || 'Unknown'}
                     </Text>
-                    <Subtle>{dueInfo.label}
-                  <View style={styles.info}>
-                    <Text style={{ color: theme.colors.textPrimary, fontWeight: '700', fontSize: 16 }}>
-                      {item.customerName || 'Unknown'}
-                    </Text>
-                    <Subtle>{overdueDays} days ago</Subtle>
+                    <Subtle>{dueInfo.label}</Subtle>
                     <Subtle>Status: {isPending ? 'Pending' : 'Paid'}</Subtle>
                   </View>
                   <View style={styles.amountContainer}>

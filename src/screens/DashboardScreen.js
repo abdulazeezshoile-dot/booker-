@@ -51,15 +51,7 @@ export default function DashboardScreen({ navigation }) {
         setRecentExpenses(cachedExpenses);
         setActivityError('Offline mode: showing last known activity');
       } finally {
-        se  <Subtle>
-              {syncInfo?.lastSyncedAt
-                ? `Last synced ${new Date(syncInfo.lastSyncedAt).toLocaleTimeString([], {
-                    hour: '2-digit',
-                    minute: '2-digit',
-                  })}`
-                : 'Not synced yet'}
-            </Subtle>
-          tLoadingActivity(false);
+        setLoadingActivity(false);
       }
     };
 
@@ -87,9 +79,24 @@ export default function DashboardScreen({ navigation }) {
           <Text style={{ color: theme.colors.textPrimary, fontSize: 18, fontWeight: '700' }}>Good morning</Text>
           <Subtle>{user ? `${user.name} • ${user.role}` : 'Guest'}</Subtle>
         </View>
-        <TouchableOpacity 
+        <TouchableOpacity
           style={[styles.workspaceBadge, { backgroundColor: theme.colors.card, borderColor: theme.colors.border }]}
           onPress={() => navigation.navigate('Settings')}
+        >
+          <Text style={{ color: theme.colors.textPrimary, fontWeight: '700' }}>
+            {currentWorkspace?.name || 'Workspace'}
+          </Text>
+          <Subtle style={{ marginTop: 4 }}>
+            {syncInfo?.lastSyncedAt
+              ? `Last synced ${new Date(syncInfo.lastSyncedAt).toLocaleTimeString([], {
+                  hour: '2-digit',
+                  minute: '2-digit',
+                })}`
+              : 'Not synced yet'}
+          </Subtle>
+        </TouchableOpacity>
+      </View>
+
       {activityError ? (
         <Subtle style={{ color: theme.colors.error }}>{activityError}</Subtle>
       ) : null}
@@ -132,8 +139,7 @@ export default function DashboardScreen({ navigation }) {
             </>
           )}
         </>
-      )}chableOpacity>
-      </View>
+      )}
 
       {/* Inventory Stats Card */}
       <Card style={{ padding: 14 }}>

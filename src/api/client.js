@@ -1,11 +1,22 @@
 import { Platform } from 'react-native';
+import Constants from 'expo-constants';
 
-// Set this to your backend base URL.
-// For emulator:
-// - Android (emulator): http://10.0.2.2:3000
-// - iOS (simulator): http://localhost:3000
-// - Physical devices: use your machine's LAN IP (e.g. http://192.168.x.x:3000)
+// Base API URL configuration
+// 1) Preferred: set in Expo/app config (app.json/app.config.js) via `extra.apiUrl` or via EAS secrets.
+// 2) Fallback: use `process.env.API_URL` (for bare RN or custom build flows).
+// 3) Fallback: local emulator defaults for fast dev.
+const getConfiguredApiUrl = () => {
+  const expoUrl = Constants.manifest?.extra?.apiUrl || Constants.expoConfig?.extra?.apiUrl;
+  if (expoUrl) return expoUrl;
+  if (typeof process !== 'undefined' && process.env?.API_URL) return process.env.API_URL;
+  return null;
+};
+
 const getBaseUrl = () => {
+  const configured = getConfiguredApiUrl();
+  if (configured) return configured.replace(/\/$/, '');
+
+  // Defaults for local development
   if (Platform.OS === 'android') {
     return 'http://10.0.2.2:3000';
   }

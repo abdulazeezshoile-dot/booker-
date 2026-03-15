@@ -4,6 +4,7 @@ import { Repository } from 'typeorm';
 import { InventoryItem } from './entities/inventory-item.entity';
 import { Workspace } from '../workspace/entities/workspace.entity';
 import { User } from '../auth/entities/user.entity';
+import { Transaction } from '../transactions/entities/transaction.entity';
 import { CreateInventoryItemDto } from './dto/create-inventory-item.dto';
 import { UpdateInventoryItemDto } from './dto/update-inventory-item.dto';
 
@@ -16,6 +17,8 @@ export class InventoryService {
     private workspacesRepository: Repository<Workspace>,
     @InjectRepository(User)
     private usersRepository: Repository<User>,
+    @InjectRepository(Transaction)
+    private transactionsRepository: Repository<Transaction>,
   ) {}
 
   // Create a new inventory item
@@ -80,6 +83,15 @@ export class InventoryService {
   // Delete an inventory item
   async deleteItem(itemId: string) {
     const item = await this.getItem(itemId);
+
+    // Preserve transaction history while allowing item deletion.
+    await this.transactionsRepository
+      .createQueryBuilder()
+      .update(Transaction)
+      .set({ item: null })
+      .where('item_id = :itemId', { itemId })
+      .execute();
+
     await this.itemsRepository.remove(item);
     return { message: 'Item deleted successfully' };
   }

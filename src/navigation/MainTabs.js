@@ -9,6 +9,7 @@ import AddItemScreen from '../screens/AddItemScreen';
 import EditItemScreen from '../screens/inventory/EditItemScreen';
 import SalesScreen from '../screens/SalesScreen';
 import DebtScreen from '../screens/DebtScreen';
+import ReportsScreen from '../screens/ReportsScreen';
 import SettingsScreen from '../screens/SettingsScreen';
 import RecordSaleScreen from '../screens/RecordSaleScreen';
 import RecordExpenseScreen from '../screens/RecordExpenseScreen';
@@ -62,6 +63,7 @@ function TabNavigator() {
           if (route.name === 'Sales') name = 'receipt-long';
           if (route.name === 'Debt') name = 'account-balance';
           if (route.name === 'Inventory') name = 'inventory';
+          if (route.name === 'Analytics') name = 'analytics';
           return <MaterialIcons name={name} size={focused ? 24 : 22} color={color} />;
         }
       })}
@@ -80,6 +82,11 @@ function TabNavigator() {
         name="Debt" 
         component={DebtScreen}
         options={{ title: 'Debt' }}
+      />
+      <Tab.Screen
+        name="Analytics"
+        component={ReportsScreen}
+        options={{ title: 'Analytics' }}
       />
       <Tab.Screen 
         name="Inventory" 

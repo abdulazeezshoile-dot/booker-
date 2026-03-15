@@ -5,9 +5,10 @@ import { InventoryController } from './inventory.controller';
 import { InventoryItem } from './entities/inventory-item.entity';
 import { Workspace } from '../workspace/entities/workspace.entity';
 import { User } from '../auth/entities/user.entity';
+import { Transaction } from '../transactions/entities/transaction.entity';
 
 @Module({
-  imports: [TypeOrmModule.forFeature([InventoryItem, Workspace, User])],
+  imports: [TypeOrmModule.forFeature([InventoryItem, Workspace, User, Transaction])],
   providers: [InventoryService],
   controllers: [InventoryController],
   exports: [InventoryService],

@@ -95,6 +95,8 @@ export default function DashboardScreen({ navigation }) {
   }, [workspace.currentWorkspaceId, refreshTick]);
 
   const currentWorkspace = workspace.workspaces.find((w) => w.id === workspace.currentWorkspaceId);
+  const currentHour = new Date().getHours();
+  const greeting = currentHour < 12 ? 'Good morning' : currentHour < 17 ? 'Good afternoon' : 'Good evening';
   const inventoryValue = inventoryItems.reduce((sum, item) => {
     const qty = Number(item.quantity) || 0;
     const cost = Number(item.costPrice) || 0;
@@ -122,7 +124,7 @@ export default function DashboardScreen({ navigation }) {
       {/* Header row */}
       <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 14 }}>
         <View style={{ flex: 1, paddingRight: 10 }}>
-          <Text style={{ color: theme.colors.textPrimary, fontSize: titleSize, fontWeight: '700' }}>Good morning</Text>
+          <Text style={{ color: theme.colors.textPrimary, fontSize: titleSize, fontWeight: '700' }}>{greeting}</Text>
           <Subtle>{user ? user.name : 'Guest'}</Subtle>
         </View>
         <TouchableOpacity

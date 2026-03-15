@@ -32,6 +32,7 @@ const HomeScreen = function({ navigation }) {
   const [showUpdateModal, setShowUpdateModal] = useState(false);
   const [selectedItem, setSelectedItem] = useState(null);
   const [newQuantity, setNewQuantity] = useState('');
+  const isLikelyOfflineError = (err) => !err?.response;
 
   const loadItems = useCallback(async () => {
     if (!currentWorkspaceId) {
@@ -130,7 +131,7 @@ const HomeScreen = function({ navigation }) {
             );
       }
     } catch (err) {
-      if (queueAction) {
+      if (queueAction && isLikelyOfflineError(err)) {
         await queueAction({
           method: 'put',
           path: `/workspaces/${currentWorkspaceId}/inventory/${itemId}`,
@@ -164,7 +165,7 @@ const HomeScreen = function({ navigation }) {
               return next;
             });
           } catch (err) {
-            if (queueAction) {
+            if (queueAction && isLikelyOfflineError(err)) {
               await queueAction({
                 method: 'delete',
                 path: `/workspaces/${currentWorkspaceId}/inventory/${itemId}`,

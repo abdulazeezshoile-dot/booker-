@@ -51,6 +51,15 @@ export class WorkspaceController {
     return this.workspaceService.findWorkspaceUserByEmail(id, req.user.sub, email);
   }
 
+  @Get(':id/users/email/:email')
+  async findWorkspaceUserByEmailPath(
+    @Param('id') id: string,
+    @Request() req,
+    @Param('email') email: string,
+  ) {
+    return this.workspaceService.findWorkspaceUserByEmail(id, req.user.sub, email);
+  }
+
   @Put(':id')
   async update(
     @Param('id') id: string,

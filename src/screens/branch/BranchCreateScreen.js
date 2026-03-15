@@ -13,7 +13,7 @@ import {
 import { useTheme } from '../../theme/ThemeContext';
 import { useWorkspace } from '../../context/WorkspaceContext';
 import { api } from '../../api/client';
-import { Card, Title } from '../../components/UI';
+import { Card, Title, AppButton } from '../../components/UI';
 import { MaterialIcons } from '@expo/vector-icons';
 
 export default function BranchCreateScreen({ navigation }) {
@@ -25,10 +25,19 @@ export default function BranchCreateScreen({ navigation }) {
   const [location, setLocation] = useState('');
   const [managerEmail, setManagerEmail] = useState('');
   const [selectedManager, setSelectedManager] = useState(null);
+  const [managerSearchMessage, setManagerSearchMessage] = useState('');
+  const [managerSearchState, setManagerSearchState] = useState('idle');
   const [managerSearchLoading, setManagerSearchLoading] = useState(false);
   const [phone, setPhone] = useState('');
   const [address, setAddress] = useState('');
   const [loading, setLoading] = useState(false);
+
+  const getErrorMessage = (err, fallback) => {
+    const raw = err?.message ?? fallback;
+    if (Array.isArray(raw)) return raw.join(', ');
+    if (typeof raw === 'string') return raw;
+    return fallback;
+  };
 
   const handleFindManager = async () => {
     const email = managerEmail.trim().toLowerCase();
@@ -43,13 +52,23 @@ export default function BranchCreateScreen({ navigation }) {
     }
 
     setManagerSearchLoading(true);
+    setManagerSearchMessage('');
+    setManagerSearchState('idle');
     try {
-      const user = await api.get(`/workspaces/${currentWorkspaceId}/users/search`, { email });
+      let user;
+      try {
+        user = await api.get(`/workspaces/${currentWorkspaceId}/users/search`, { email });
+      } catch (searchErr) {
+        // Backward-compatible fallback route
+        user = await api.get(`/workspaces/${currentWorkspaceId}/users/email/${encodeURIComponent(email)}`);
+      }
       setSelectedManager(user);
-      Alert.alert('Manager Found', `${user.name} (${user.email})`);
+      setManagerSearchState('success');
+      setManagerSearchMessage(`Manager selected: ${user.name} (${user.email})`);
     } catch (err) {
       setSelectedManager(null);
-      Alert.alert('Not found', err?.message || 'No user found with this email');
+      setManagerSearchState('error');
+      setManagerSearchMessage(getErrorMessage(err, 'No user found with this email'));
     } finally {
       setManagerSearchLoading(false);
     }
@@ -90,7 +109,7 @@ export default function BranchCreateScreen({ navigation }) {
         },
       ]);
     } catch (err) {
-      Alert.alert('Error', err?.message || 'Unable to create branch');
+      Alert.alert('Error', getErrorMessage(err, 'Unable to create branch'));
     } finally {
       setLoading(false);
     }
@@ -163,24 +182,66 @@ export default function BranchCreateScreen({ navigation }) {
             onChangeText={(value) => {
               setManagerEmail(value);
               setSelectedManager(null);
+              setManagerSearchMessage('');
+              setManagerSearchState('idle');
             }}
             autoCapitalize="none"
             keyboardType="email-address"
           />
-          <TouchableOpacity
-            style={[styles.findManagerButton, { backgroundColor: theme.colors.card, borderColor: theme.colors.border, opacity: managerSearchLoading ? 0.7 : 1 }]}
+          <AppButton
+            title={managerSearchLoading ? 'Checking…' : 'Find Manager'}
+            icon="person-search"
+            variant="secondary"
             onPress={handleFindManager}
-            disabled={managerSearchLoading}
-          >
-            <MaterialIcons name="person-search" size={18} color={theme.colors.primary} />
-            <Text style={{ color: theme.colors.primary, marginLeft: 8, fontWeight: '600' }}>
-              {managerSearchLoading ? 'Checking…' : 'Find Manager'}
-            </Text>
-          </TouchableOpacity>
+            loading={managerSearchLoading}
+            style={styles.findManagerButton}
+          />
+          {managerSearchMessage ? (
+            <View style={[
+              styles.searchStatus,
+              {
+                borderColor: managerSearchState === 'success' ? theme.colors.success : theme.colors.error,
+                backgroundColor: managerSearchState === 'success' ? `${theme.colors.success}15` : `${theme.colors.error}15`,
+              },
+            ]}>
+              <MaterialIcons
+                name={managerSearchState === 'success' ? 'check-circle' : 'error'}
+                size={16}
+                color={managerSearchState === 'success' ? theme.colors.success : theme.colors.error}
+              />
+              <Text style={{
+                flex: 1,
+                marginLeft: 8,
+                color: managerSearchState === 'success' ? theme.colors.success : theme.colors.error,
+                fontSize: 12,
+                fontWeight: '600',
+              }}>
+                {managerSearchMessage}
+              </Text>
+            </View>
+          ) : null}
           {selectedManager ? (
             <View style={[styles.managerCard, { borderColor: theme.colors.border, backgroundColor: theme.colors.card }]}> 
-              <Text style={{ color: theme.colors.textPrimary, fontWeight: '700' }}>{selectedManager.name}</Text>
-              <Text style={{ color: theme.colors.textSecondary }}>{selectedManager.email}</Text>
+              <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
+                <View style={{ flex: 1 }}>
+                  <Text style={{ color: theme.colors.textPrimary, fontWeight: '700' }}>{selectedManager.name}</Text>
+                  <Text style={{ color: theme.colors.textSecondary }}>{selectedManager.email}</Text>
+                </View>
+                <View style={{
+                  borderRadius: 999,
+                  paddingHorizontal: 10,
+                  paddingVertical: 5,
+                  backgroundColor: selectedManager.alreadyMember ? `${theme.colors.success}20` : `${theme.colors.warning}20`,
+                }}>
+                  <Text style={{
+                    color: selectedManager.alreadyMember ? theme.colors.success : theme.colors.warning,
+                    fontSize: 11,
+                    fontWeight: '700',
+                  }}>
+                    {selectedManager.alreadyMember ? 'Member' : 'Will be added'}
+                  </Text>
+                </View>
+              </View>
             </View>
           ) : null}
           <Text style={{ color: theme.colors.textSecondary, fontSize: 11, marginTop: 6 }}>
@@ -228,28 +289,14 @@ export default function BranchCreateScreen({ navigation }) {
         </Card>
 
         {/* Submit Button */}
-        <TouchableOpacity
-          style={[
-            styles.submitButton,
-            {
-              backgroundColor: theme.colors.primary,
-              opacity: loading ? 0.7 : 1,
-            },
-          ]}
+        <AppButton
+          title={loading ? 'Creating…' : 'Create Branch'}
+          icon="add-location-alt"
+          variant="primary"
           onPress={handleCreateBranch}
-          disabled={loading}
-        >
-          <MaterialIcons name="add-location-alt" size={20} color="#fff" />
-          <Text
-            style={{
-              color: '#fff',
-              fontWeight: '600',
-              marginLeft: 8,
-            }}
-          >
-            {loading ? 'Creating…' : 'Create Branch'}
-          </Text>
-        </TouchableOpacity>
+          loading={loading}
+          style={styles.submitButton}
+        />
       </ScrollView>
     </KeyboardAvoidingView>
   );
@@ -271,13 +318,6 @@ const styles = StyleSheet.create({
   },
   findManagerButton: {
     marginTop: 10,
-    borderWidth: 1,
-    borderRadius: 8,
-    paddingVertical: 10,
-    paddingHorizontal: 12,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
   },
   managerCard: {
     marginTop: 10,
@@ -285,13 +325,16 @@ const styles = StyleSheet.create({
     borderRadius: 8,
     padding: 10,
   },
-  submitButton: {
+  searchStatus: {
+    marginTop: 10,
+    borderWidth: 1,
+    borderRadius: 8,
+    paddingHorizontal: 10,
+    paddingVertical: 8,
     flexDirection: 'row',
-    paddingVertical: 14,
-    paddingHorizontal: 16,
-    borderRadius: 10,
     alignItems: 'center',
-    justifyContent: 'center',
+  },
+  submitButton: {
     marginTop: 8,
   },
 });

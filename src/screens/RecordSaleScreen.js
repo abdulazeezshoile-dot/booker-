@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useMemo, useState } from 'react';
 import {
   View,
   Text,
@@ -13,6 +13,7 @@ import {
 import { useTheme } from '../theme/ThemeContext';
 import { useWorkspace } from '../context/WorkspaceContext';
 import { api } from '../api/client';
+import { cacheInventory, getCachedInventory } from '../storage/offlineStore';
 import { Card, Title } from '../components/UI';
 import { MaterialIcons } from '@expo/vector-icons';
 
@@ -26,15 +27,42 @@ export default function RecordSaleScreen({ navigation, route }) {
 
   const cartTotal = cartItems.reduce((sum, item) => sum + item.quantity * (item.sellingPrice || 0), 0);
 
-  // Manual mode fields
-  const [itemName, setItemName] = useState('');
+  // Single sale mode fields
+  const [inventoryItems, setInventoryItems] = useState([]);
+  const [selectedItemId, setSelectedItemId] = useState('');
   const [quantity, setQuantity] = useState('');
-  const [price, setPrice] = useState('');
 
   // Shared fields
   const [customer, setCustomer] = useState('');
   const [notes, setNotes] = useState('');
   const [loading, setLoading] = useState(false);
+
+  const selectedItem = useMemo(
+    () => inventoryItems.find((item) => item.id === selectedItemId) || null,
+    [inventoryItems, selectedItemId],
+  );
+  const unitPrice = Number(selectedItem?.sellingPrice || 0);
+
+  React.useEffect(() => {
+    const loadInventory = async () => {
+      if (!currentWorkspaceId) {
+        setInventoryItems([]);
+        return;
+      }
+
+      try {
+        const data = await api.get(`/workspaces/${currentWorkspaceId}/inventory`);
+        const list = Array.isArray(data) ? data : [];
+        setInventoryItems(list);
+        cacheInventory(currentWorkspaceId, list).catch(() => null);
+      } catch {
+        const cached = await getCachedInventory(currentWorkspaceId);
+        setInventoryItems(Array.isArray(cached) ? cached : []);
+      }
+    };
+
+    loadInventory();
+  }, [currentWorkspaceId]);
 
   const postTransaction = async (payload) => {
     try {
@@ -80,25 +108,33 @@ export default function RecordSaleScreen({ navigation, route }) {
           [{ text: 'OK', onPress: () => navigation.goBack() }],
         );
       } else {
-        if (!itemName || !quantity || !price) {
-          Alert.alert('Validation Error', 'Please fill in all required fields');
+        if (!selectedItem || !quantity) {
+          Alert.alert('Validation Error', 'Please select item and quantity');
           setLoading(false);
           return;
         }
-        const total = parseFloat(price) * parseInt(quantity, 10);
+
+        const qtyNum = parseFloat(quantity);
+        if (!qtyNum || qtyNum <= 0) {
+          Alert.alert('Validation Error', 'Quantity must be greater than zero');
+          setLoading(false);
+          return;
+        }
+
+        const total = unitPrice * qtyNum;
         await postTransaction({
           type: 'sale',
-          itemId: null,
-          quantity: parseFloat(quantity),
-          unitPrice: parseFloat(price),
+          itemId: selectedItem.id,
+          quantity: qtyNum,
+          unitPrice,
           totalAmount: total,
           paymentMethod: 'cash',
           customerName: customer || 'Walk-in',
-          notes: notes || itemName,
+          notes: notes || selectedItem.name,
         });
         Alert.alert(
           'Sale recorded',
-          `${quantity} × ${itemName} = ₦${total.toLocaleString()}\nCustomer: ${customer || 'Walk-in'}`,
+          `${qtyNum} × ${selectedItem.name} = ₦${total.toLocaleString()}\nCustomer: ${customer || 'Walk-in'}`,
           [{ text: 'OK', onPress: () => navigation.goBack() }],
         );
       }
@@ -161,21 +197,37 @@ export default function RecordSaleScreen({ navigation, route }) {
           </Card>
         ) : (
           <Card style={{ marginBottom: 16 }}>
-            <Text style={{ color: theme.colors.textSecondary, fontSize: 12, marginBottom: 8 }}>Item Name *</Text>
-            <TextInput
-              style={[
-                styles.input,
-                {
-                  backgroundColor: theme.colors.card,
-                  color: theme.colors.textPrimary,
-                  borderColor: theme.colors.border,
-                },
-              ]}
-              placeholder="Enter item name"
-              placeholderTextColor={theme.colors.textSecondary}
-              value={itemName}
-              onChangeText={setItemName}
-            />
+            <Text style={{ color: theme.colors.textSecondary, fontSize: 12, marginBottom: 8 }}>Select Item *</Text>
+            <View style={[styles.itemsWrap, { borderColor: theme.colors.border, backgroundColor: theme.colors.card }]}> 
+              {inventoryItems.length === 0 ? (
+                <Text style={{ color: theme.colors.textSecondary, fontSize: 12 }}>No inventory items available</Text>
+              ) : (
+                inventoryItems.map((item) => {
+                  const selected = selectedItemId === item.id;
+                  return (
+                    <TouchableOpacity
+                      key={item.id}
+                      style={[
+                        styles.itemOption,
+                        {
+                          borderColor: selected ? theme.colors.primary : theme.colors.border,
+                          backgroundColor: selected ? `${theme.colors.primary}15` : 'transparent',
+                        },
+                      ]}
+                      onPress={() => setSelectedItemId(item.id)}
+                    >
+                      <View style={{ flex: 1 }}>
+                        <Text style={{ color: theme.colors.textPrimary, fontWeight: '700' }}>{item.name}</Text>
+                        <Text style={{ color: theme.colors.textSecondary, fontSize: 12 }}>
+                          Stock: {Number(item.quantity || 0)} • Price: ₦{Number(item.sellingPrice || 0).toLocaleString()}
+                        </Text>
+                      </View>
+                      {selected ? <MaterialIcons name="check-circle" size={18} color={theme.colors.primary} /> : null}
+                    </TouchableOpacity>
+                  );
+                })
+              )}
+            </View>
 
             <View style={{ flexDirection: 'row', gap: 12, marginTop: 12 }}>
               <View style={{ flex: 1 }}>
@@ -197,31 +249,30 @@ export default function RecordSaleScreen({ navigation, route }) {
                 />
               </View>
               <View style={{ flex: 1 }}>
-                <Text style={{ color: theme.colors.textSecondary, fontSize: 12, marginBottom: 8 }}>Price per unit (₦) *</Text>
-                <TextInput
+                <Text style={{ color: theme.colors.textSecondary, fontSize: 12, marginBottom: 8 }}>Price per unit (₦)</Text>
+                <View
                   style={[
                     styles.input,
                     {
                       backgroundColor: theme.colors.card,
-                      color: theme.colors.textPrimary,
                       borderColor: theme.colors.border,
+                      justifyContent: 'center',
                     },
                   ]}
-                  placeholder="0.00"
-                  placeholderTextColor={theme.colors.textSecondary}
-                  keyboardType="decimal-pad"
-                  value={price}
-                  onChangeText={setPrice}
-                />
+                >
+                  <Text style={{ color: theme.colors.textPrimary, fontWeight: '600' }}>
+                    ₦{unitPrice.toLocaleString()}
+                  </Text>
+                </View>
               </View>
             </View>
 
-            {quantity && price && (
+            {quantity && selectedItem && (
               <View style={{ marginTop: 12, paddingTop: 12, borderTopWidth: 1, borderTopColor: theme.colors.border }}>
                 <View style={{ flexDirection: 'row', justifyContent: 'space-between' }}>
                   <Text style={{ color: theme.colors.textSecondary }}>Total:</Text>
                   <Text style={{ color: theme.colors.primary, fontWeight: '700', fontSize: 16 }}>
-                    ₦{(parseFloat(price) * parseInt(quantity)).toLocaleString()}
+                    ₦{(unitPrice * (parseFloat(quantity) || 0)).toLocaleString()}
                   </Text>
                 </View>
               </View>
@@ -305,6 +356,20 @@ const styles = StyleSheet.create({
   textArea: {
     height: 100,
     textAlignVertical: 'top',
+  },
+  itemsWrap: {
+    borderWidth: 1,
+    borderRadius: 10,
+    padding: 8,
+    maxHeight: 210,
+  },
+  itemOption: {
+    borderWidth: 1,
+    borderRadius: 8,
+    padding: 10,
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 8,
   },
   actionRow: {
     flexDirection: 'row',

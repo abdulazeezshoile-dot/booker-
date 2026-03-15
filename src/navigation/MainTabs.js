@@ -112,7 +112,7 @@ function TabWithFab() {
       <View style={styles.fabContainer} pointerEvents="box-none">
         <TouchableOpacity
           style={styles.fab}
-          onPress={() => navigation.navigate('RecordSale')}
+          onPress={() => navigation.navigate('AddItem')}
         >
           <MaterialIcons name="add-circle" size={56} color={theme.colors.primary} />
         </TouchableOpacity>

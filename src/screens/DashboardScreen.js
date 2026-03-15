@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { View, Text, ScrollView, TouchableOpacity, StyleSheet, useWindowDimensions } from 'react-native';
+import { useFocusEffect } from '@react-navigation/native';
 import { useTheme } from '../theme/ThemeContext';
 import { useWorkspace } from '../context/WorkspaceContext';
 import { cacheTransactions, getCachedTransactions } from '../storage/offlineStore';
@@ -25,6 +26,13 @@ export default function DashboardScreen({ navigation }) {
   const [loadingActivity, setLoadingActivity] = React.useState(false);
   const [activityError, setActivityError] = React.useState(null);
   const [inventoryItems, setInventoryItems] = React.useState([]);
+  const [refreshTick, setRefreshTick] = React.useState(0);
+
+  useFocusEffect(
+    React.useCallback(() => {
+      setRefreshTick((prev) => prev + 1);
+    }, []),
+  );
 
   React.useEffect(() => {
     const loadActivity = async () => {
@@ -63,7 +71,7 @@ export default function DashboardScreen({ navigation }) {
     };
 
     loadActivity();
-  }, [workspace.currentWorkspaceId]);
+  }, [workspace.currentWorkspaceId, refreshTick]);
 
   React.useEffect(() => {
     const loadInventory = async () => {
@@ -84,7 +92,7 @@ export default function DashboardScreen({ navigation }) {
     };
 
     loadInventory();
-  }, [workspace.currentWorkspaceId]);
+  }, [workspace.currentWorkspaceId, refreshTick]);
 
   const currentWorkspace = workspace.workspaces.find((w) => w.id === workspace.currentWorkspaceId);
   const inventoryValue = inventoryItems.reduce((sum, item) => {

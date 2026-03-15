@@ -166,9 +166,11 @@ export class WorkspaceService {
       throw new BadRequestException('You are not allowed to manage this workspace');
     }
 
-    const foundUser = await this.usersRepository.findOne({ where: { email: normalizedEmail } });
+    const foundUser = await this.usersRepository.findOne({
+      where: { email: normalizedEmail },
+    });
     if (!foundUser) {
-      throw new NotFoundException('No user found with this email. They need to register first.');
+      throw new NotFoundException('User not found');
     }
 
     const alreadyMember = workspace.users?.some((member) => member.id === foundUser.id) || false;

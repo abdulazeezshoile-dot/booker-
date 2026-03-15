@@ -1,7 +1,7 @@
 {
   "expo": {
     "name": "BizRecord",
-    "slug": "bizrecord",
+    "slug": "booker-inventory",
     "version": "1.0.0",
     "orientation": "portrait",
     "userInterfaceStyle": "automatic",

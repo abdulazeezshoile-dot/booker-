@@ -66,6 +66,8 @@ The backend supports two ways to configure the database connection:
 
 `DATABASE_URL` takes priority when both are provided.
 
+Set `DB_SSL=true` when your database server requires SSL/TLS (common with managed cloud databases such as Railway, Render, Supabase, and Heroku). This applies to both connection methods.
+
 ---
 
 ## Tech Stack

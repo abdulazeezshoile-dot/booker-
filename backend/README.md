@@ -62,6 +62,24 @@ DB_NAME=booker_db
 
 Both options are shown in [.env.example](.env.example).
 
+### SSL / TLS
+
+Many managed cloud databases (Railway, Render, Supabase, Heroku, etc.) require encrypted connections. If you see a **`SSL/TLS required`** error, add the following to your `.env`:
+
+```env
+DB_SSL=true
+```
+
+This works for both the `DATABASE_URL` and individual-parameter connection methods. By default, certificate validation is **enabled** (`rejectUnauthorized: true`), which is the secure setting and works with most managed databases that have CA-signed certificates.
+
+If your provider uses **self-signed certificates** and you see a certificate validation error, you can additionally set:
+
+```env
+DB_SSL_REJECT_UNAUTHORIZED=false
+```
+
+> **Security note:** `DB_SSL_REJECT_UNAUTHORIZED=false` disables certificate chain validation and makes the connection susceptible to man-in-the-middle attacks. Only use it when your provider cannot supply a trusted CA bundle and you have accepted this risk.
+
 ---
 
 ## Running the Server
@@ -173,6 +191,8 @@ Migrations run automatically on application startup in non-production environmen
 | `DB_USERNAME` | No* | `postgres` | Database user |
 | `DB_PASSWORD` | No* | `password` | Database password |
 | `DB_NAME` | No* | `booker_db` | Database name |
+| `DB_SSL` | No* | `false` | Set to `true` to enable SSL/TLS (required by most managed cloud databases) |
+| `DB_SSL_REJECT_UNAUTHORIZED` | No | `true` | Set to `false` to allow self-signed certificates (disables cert validation – use with caution) |
 | `JWT_SECRET` | **Yes** | – | Secret key for signing JWT tokens |
 | `JWT_EXPIRES_IN` | No | `24h` | JWT expiry duration |
 | `PORT` | No | `3000` | Port the server listens on |

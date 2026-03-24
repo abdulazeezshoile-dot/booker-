@@ -33,7 +33,7 @@ const getDueInfo = (dueDate) => {
 export default function DebtScreen({ navigation }) {
   const themeContext = useTheme();
   const theme = themeContext.theme;
-  const { currentWorkspaceId } = useWorkspace();
+  const { currentWorkspaceId, repo } = useWorkspace();
   const { width } = useWindowDimensions();
 
   const [debts, setDebts] = useState([]);
@@ -61,27 +61,88 @@ export default function DebtScreen({ navigation }) {
       setError(null);
 
       try {
-        const data = await api.get(`/workspaces/${currentWorkspaceId}/transactions`, {
-          type: 'debt',
-        });
-        const list = Array.isArray(data) ? data : [];
-        setDebts(list);
-        cacheDebts(currentWorkspaceId, list).catch(() => null);
-      } catch (err) {
-        const cached = await getCachedDebts(currentWorkspaceId);
-        if (cached && cached.length) {
-          setDebts(cached);
-          setError('Offline mode: showing last known debt list');
-        } else {
-          setError(err?.message || 'Unable to load debts');
+        // Always read from local repo first
+        const localRows = await repo.getDebts();
+        let localList = [];
+        if (localRows?.rows?.length > 0) {
+          for (let i = 0; i < localRows.rows.length; i++) {
+            const row = localRows.rows.item(i);
+            const data = row.data ? JSON.parse(row.data) : {};
+            if (data.type === 'debt') {
+              localList.push({ ...data, local_id: row.local_id, sync_status: row.sync_status });
+            }
+          }
         }
+        setDebts(localList);
+
+        // Optionally, fetch remote and update local cache if online
+        try {
+          const data = await api.get(`/workspaces/${currentWorkspaceId}/transactions`, {
+            type: 'debt',
+          });
+          const list = Array.isArray(data) ? data : [];
+          setDebts(list);
+          cacheDebts(currentWorkspaceId, list).catch(() => null);
+        } catch (err) {
+          // Ignore fetch error, stay local
+        }
+      } catch (err) {
+        setError('Unable to load debts');
       } finally {
         setLoading(false);
       }
     };
 
     loadDebts();
-  }, [currentWorkspaceId, refreshTick]);
+  }, [currentWorkspaceId, refreshTick, repo]);
+
+  // Add sync status badge to each row (Not synced, Syncing, Failed) and retry button for failed
+  const renderSyncBadge = (item) => {
+    if (item.sync_status === 'pending_create' || item.sync_status === 'pending_update') {
+      return <Text style={{ color: '#FFA500', fontSize: 11, marginLeft: 6 }}>Not synced</Text>;
+    }
+    if (item.sync_status === 'failed') {
+      return (
+        <View style={{ flexDirection: 'row', alignItems: 'center', marginLeft: 6 }}>
+          <Text style={{ color: '#E53935', fontSize: 11 }}>Failed</Text>
+          <TouchableOpacity
+            onPress={() => handleRetrySync(item)}
+            style={{ marginLeft: 4 }}
+            accessibilityLabel="Retry sync"
+          >
+            <MaterialIcons name="refresh" size={16} color="#E53935" />
+          </TouchableOpacity>
+        </View>
+      );
+    }
+    return null;
+  };
+
+  // Row-level retry for failed syncs
+  const handleRetrySync = async (item) => {
+    if (!repo || !currentWorkspaceId) return;
+    try {
+      // Try to re-queue the failed action
+      let action = null;
+      if (item.sync_status === 'failed') {
+        if (item.local_id && item.pending_action) {
+          action = { ...item.pending_action };
+        } else {
+          action = {
+            method: 'put',
+            path: `/workspaces/${currentWorkspaceId}/transactions/${item.id}`,
+            body: { ...item },
+          };
+        }
+        if (repo.queueAction) {
+          await repo.queueAction(action);
+        }
+        Alert.alert('Retry', 'Sync retry queued and will sync once online');
+      }
+    } catch (err) {
+      Alert.alert('Error', err?.message || 'Unable to retry sync');
+    }
+  };
 
   const sendWhatsApp = (phone, name, amount) => {
     const message = `Hello ${name}, this is a reminder from your shop regarding your balance of ₦${amount.toFixed(
@@ -136,23 +197,27 @@ export default function DebtScreen({ navigation }) {
       </View>
 
       {loading ? (
-        <View style={{ alignSelf: 'center', width: contentWidth, paddingHorizontal: edgePadding, marginTop: 12 }}>
-          <SkeletonBlock height={20} width="45%" />
-          <SkeletonBlock height={76} />
-          <SkeletonBlock height={76} />
-          <SkeletonBlock height={76} />
+        <View style={{ alignSelf: 'center', width: contentWidth, paddingHorizontal: edgePadding, marginTop: 24 }}>
+          <SkeletonBlock height={28} width="50%" style={{ marginBottom: 18, borderRadius: 8 }} />
+          <SkeletonBlock height={90} style={{ marginBottom: 18, borderRadius: 16 }} />
+          <SkeletonBlock height={90} style={{ marginBottom: 18, borderRadius: 16 }} />
+          <SkeletonBlock height={90} style={{ marginBottom: 18, borderRadius: 16 }} />
         </View>
       ) : (
         <FlatList
           data={debts}
           keyExtractor={(item) => item.id}
-          contentContainerStyle={{ paddingHorizontal: edgePadding, paddingBottom: 24 }}
+          contentContainerStyle={{ paddingHorizontal: edgePadding, paddingBottom: 32 }}
           style={{ alignSelf: 'center', width: contentWidth }}
           ListEmptyComponent={() => (
             <EmptyState
               icon="account-balance-wallet"
               title="No debts yet"
               subtitle="Record debt entries to track who owes your business"
+              style={{ marginTop: 32 }}
+              ctaLabel="Record a debt"
+              onCtaPress={() => navigation.navigate('RecordDebt')}
+              accessibilityLabel="No debts yet. Record a debt entry."
             />
           )}
           renderItem={({ item }) => {
@@ -160,31 +225,35 @@ export default function DebtScreen({ navigation }) {
             const isPending = item.status === 'pending';
 
             return (
-              <Card style={[styles.card, { borderColor: theme.colors.border }]}> 
+              <Card style={[styles.card, { borderColor: theme.colors.border, marginBottom: 18, borderRadius: 14, elevation: 2 }]}
+                accessible accessibilityLabel={`Debt for ${item.customerName || 'Unknown'}: ${dueInfo.label}, Status: ${isPending ? 'Pending' : 'Paid'}`}
+              >
                 <View style={styles.row}>
                   <View style={styles.info}>
-                    <Text style={{ color: theme.colors.textPrimary, fontWeight: '700', fontSize: isCompact ? 15 : 16 }}>
+                    <Text style={{ color: theme.colors.textPrimary, fontWeight: '700', fontSize: isCompact ? 16 : 18 }}>
                       {item.customerName || 'Unknown'}
                     </Text>
-                    <Subtle>{dueInfo.label}</Subtle>
-                    <Subtle>Status: {isPending ? 'Pending' : 'Paid'}</Subtle>
+                    <Subtle style={{ marginTop: 4 }}>{dueInfo.label}</Subtle>
+                    <Subtle style={{ marginTop: 2 }}>Status: {isPending ? 'Pending' : 'Paid'}</Subtle>
                   </View>
                   <View style={styles.amountContainer}>
-                    <Text style={{ color: theme.colors.error, fontWeight: '700' }}>
+                    <Text style={{ color: theme.colors.error, fontWeight: '700', fontSize: 17 }}>
                       ₦{parseFloat(item.totalAmount).toLocaleString()}
                     </Text>
                     <AppButton
                       title="WhatsApp"
                       variant="primary"
                       onPress={() => sendWhatsApp(item.phone || '', item.customerName || 'Friend', parseFloat(item.totalAmount))}
-                      style={[styles.whatsappButton, { backgroundColor: '#25D366', borderColor: '#25D366' }]}
+                      style={[styles.whatsappButton, { backgroundColor: '#25D366', borderColor: '#25D366', marginTop: 8 }]}
+                      accessibilityLabel={`Send WhatsApp reminder to ${item.customerName || 'Friend'}`}
                     />
                     {isPending ? (
                       <AppButton
                         title="Mark Paid"
                         variant="primary"
                         onPress={() => markAsPaid(item.id)}
-                        style={[styles.payButton, { backgroundColor: theme.colors.success, borderColor: theme.colors.success }]}
+                        style={[styles.payButton, { backgroundColor: theme.colors.success, borderColor: theme.colors.success, marginTop: 8 }]}
+                        accessibilityLabel={`Mark debt for ${item.customerName || 'Unknown'} as paid`}
                       />
                     ) : null}
                   </View>

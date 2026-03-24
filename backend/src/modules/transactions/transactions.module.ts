@@ -6,12 +6,13 @@ import { Transaction } from './entities/transaction.entity';
 import { Workspace } from '../workspace/entities/workspace.entity';
 import { User } from '../auth/entities/user.entity';
 import { InventoryItem } from '../inventory/entities/inventory-item.entity';
+import { ReceiptService } from './receipt.service';
 
 @Module({
   imports: [
     TypeOrmModule.forFeature([Transaction, Workspace, User, InventoryItem]),
   ],
-  providers: [TransactionsService],
+  providers: [TransactionsService, ReceiptService],
   controllers: [TransactionsController],
   exports: [TransactionsService],
 })

@@ -1,7 +1,145 @@
+// --- Sync Coordinator Worker ---
+let syncWorkerActive = false;
+const BACKOFF_BASE_MS = 1500;
+const MAX_RETRIES = 5;
+
+async function syncCoordinatorWorker({ token, currentWorkspaceId }) {
+  if (syncWorkerActive) return;
+  syncWorkerActive = true;
+  try {
+    const outboxRes = await offlineStore.getSyncOutboxActions();
+    const rows = outboxRes?.rows || { length: 0 };
+    for (let i = 0; i < rows.length; i++) {
+      const action = rows.item(i);
+      // Skip if not due for retry yet
+      if (action.next_retry_at && Date.now() < action.next_retry_at) continue;
+      // Dependency check: skip if parent action still exists
+      if (action.depends_on_action_id) {
+        let parentExists = false;
+        for (let j = 0; j < rows.length; j++) {
+          if (rows.item(j).action_id === action.depends_on_action_id) {
+            parentExists = true;
+            break;
+          }
+        }
+        if (parentExists) continue;
+      }
+      // Map workspace_ref if needed
+      let workspaceId = action.workspace_ref;
+      if (workspaceId && workspaceId.startsWith('local_')) {
+        const mapped = await offlineStore.getServerId('workspace', workspaceId);
+        if (!mapped) {
+          // Can't sync child until workspace is mapped
+          continue;
+        }
+        workspaceId = mapped;
+      }
+      try {
+        const payload = action.payload ? JSON.parse(action.payload) : undefined;
+        let apiRes = null;
+        // --- Conflict detection for update/delete ---
+        let entityType = null;
+        let serverId = null;
+        let localRow = null;
+        let remoteRow = null;
+        let localUpdated = null;
+        let remoteUpdated = null;
+        let conflict = false;
+        if (action.action_type.startsWith('update_') || action.action_type.startsWith('delete_')) {
+          if (action.action_type.includes('inventory')) entityType = 'inventory';
+          if (action.action_type.includes('transaction')) entityType = 'transaction';
+          if (action.action_type.includes('debt')) entityType = 'debt';
+          serverId = await offlineStore.getServerId(entityType, action.entity_local_id);
+          if (!serverId) throw new Error('No serverId for ' + entityType);
+          // Get local row
+          localRow = await offlineStore.getLocalRow(entityType, action.entity_local_id);
+          localUpdated = localRow?.updated_at_local || localRow?.updatedAt || 0;
+          // Fetch remote row (if online)
+          try {
+            if (entityType === 'inventory') {
+              remoteRow = await api.get(`/workspaces/${workspaceId}/inventory/${serverId}`);
+            } else if (entityType === 'transaction' || entityType === 'debt') {
+              remoteRow = await api.get(`/workspaces/${workspaceId}/transactions/${serverId}`);
+            }
+            remoteUpdated = new Date(remoteRow?.updatedAt || remoteRow?.updated_at || 0).getTime();
+            // If both changed since last sync, mark conflict
+            if (remoteUpdated && localUpdated && Math.abs(remoteUpdated - localUpdated) > 1000) {
+              conflict = true;
+            }
+          } catch (e) {
+            // If offline or fetch fails, skip conflict check (best effort)
+          }
+        }
+        if (conflict) {
+          // Mark as conflict in outbox and local row
+          await offlineStore.markConflict(entityType, action.entity_local_id, action.action_id);
+          continue; // Skip this action until resolved
+        }
+        // --- Normal sync logic ---
+        if (action.action_type === 'create_workspace') {
+          apiRes = await api.post('/workspaces', payload);
+          if (apiRes?.id) {
+            await offlineStore.setIdMapping('workspace', action.entity_local_id, apiRes.id);
+          }
+        } else if (action.action_type === 'create_inventory') {
+          apiRes = await api.post(`/workspaces/${workspaceId}/inventory`, payload);
+          if (apiRes?.id) {
+            await offlineStore.setIdMapping('inventory', action.entity_local_id, apiRes.id);
+          }
+        } else if (action.action_type === 'update_inventory') {
+          apiRes = await api.put(`/workspaces/${workspaceId}/inventory/${serverId}`, payload);
+        } else if (action.action_type === 'delete_inventory') {
+          apiRes = await api.delete(`/workspaces/${workspaceId}/inventory/${serverId}`);
+        } else if (action.action_type === 'create_transaction') {
+          apiRes = await api.post(`/workspaces/${workspaceId}/transactions`, payload);
+          if (apiRes?.id) {
+            await offlineStore.setIdMapping('transaction', action.entity_local_id, apiRes.id);
+          }
+        } else if (action.action_type === 'update_transaction') {
+          apiRes = await api.put(`/workspaces/${workspaceId}/transactions/${serverId}`, payload);
+        } else if (action.action_type === 'delete_transaction') {
+          apiRes = await api.delete(`/workspaces/${workspaceId}/transactions/${serverId}`);
+        } else if (action.action_type === 'create_debt') {
+          apiRes = await api.post(`/workspaces/${workspaceId}/transactions`, payload);
+          if (apiRes?.id) {
+            await offlineStore.setIdMapping('debt', action.entity_local_id, apiRes.id);
+          }
+        } else if (action.action_type === 'update_debt') {
+          apiRes = await api.put(`/workspaces/${workspaceId}/transactions/${serverId}`, payload);
+        } else if (action.action_type === 'delete_debt') {
+          apiRes = await api.delete(`/workspaces/${workspaceId}/transactions/${serverId}`);
+        }
+        // On success: remove from outbox
+        await offlineStore.executeSql('DELETE FROM sync_outbox WHERE action_id = ?', [action.action_id]);
+        // TODO: update local row status to synced if needed
+      } catch (err) {
+        // On failure: increment retry_count, set next_retry_at (exponential backoff), update last_error
+        const retryCount = (action.retry_count || 0) + 1;
+        const backoff = Math.min(BACKOFF_BASE_MS * Math.pow(2, retryCount - 1), 60000);
+        const nextRetry = Date.now() + backoff;
+        if (retryCount > MAX_RETRIES) {
+          // Give up: leave in outbox with error
+          await offlineStore.executeSql(
+            'UPDATE sync_outbox SET last_error = ?, retry_count = ?, next_retry_at = ? WHERE action_id = ?',
+            [err.message, retryCount, null, action.action_id]
+          );
+        } else {
+          await offlineStore.executeSql(
+            'UPDATE sync_outbox SET last_error = ?, retry_count = ?, next_retry_at = ? WHERE action_id = ?',
+            [err.message, retryCount, nextRetry, action.action_id]
+          );
+        }
+      }
+    }
+  } finally {
+    syncWorkerActive = false;
+  }
+}
 import React, { createContext, useContext, useState, useCallback, useMemo, useEffect } from 'react';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useAuth } from './AuthContext';
 import { api } from '../api/client';
+import * as offlineStore from '../storage/offlineStore';
 
 const WorkspaceContext = createContext();
 const WORKSPACE_STORAGE_KEY = '@booker:currentWorkspace';
@@ -118,9 +256,10 @@ export const WorkspaceProvider = function({ children }) {
     setIsSyncing(false);
   }, [currentWorkspaceId, pendingActions, token]);
 
+  // Updated: queueAction now triggers syncCoordinatorWorker
   const queueAction = async (action) => {
     await enqueueOfflineAction(action);
-    processPendingActions();
+    syncCoordinatorWorker({ token, currentWorkspaceId });
   };
 
   const syncInfo = useMemo(
@@ -179,13 +318,27 @@ export const WorkspaceProvider = function({ children }) {
   useEffect(() => {
     // Attempt to sync queued work whenever the auth token or workspace changes
     if (token && currentWorkspaceId) {
-      processPendingActions();
+      syncCoordinatorWorker({ token, currentWorkspaceId });
     }
-  }, [token, currentWorkspaceId, processPendingActions]);
+  }, [token, currentWorkspaceId]);
 
   useEffect(() => {
     persistWorkspaceId(currentWorkspaceId);
   }, [currentWorkspaceId]);
+
+  // --- Workspace-scoped repository abstraction ---
+  // All local entity access must use currentWorkspaceId (local)
+  const repo = useMemo(() => ({
+    getInventory: () => offlineStore.getLocalInventory(currentWorkspaceId),
+    getTransactions: () => offlineStore.getLocalTransactions(currentWorkspaceId),
+    getDebts: () => offlineStore.getLocalDebts(currentWorkspaceId),
+    upsertInventory: (item) => offlineStore.upsertLocalInventory(item, currentWorkspaceId),
+    upsertTransaction: (item) => offlineStore.upsertLocalTransaction(item, currentWorkspaceId),
+    upsertDebt: (item) => offlineStore.upsertLocalDebt(item, currentWorkspaceId),
+    deleteInventory: (localId) => offlineStore.deleteLocalInventory(localId, currentWorkspaceId),
+    deleteTransaction: (localId) => offlineStore.deleteLocalTransaction(localId, currentWorkspaceId),
+    deleteDebt: (localId) => offlineStore.deleteLocalDebt(localId, currentWorkspaceId),
+  }), [currentWorkspaceId]);
 
   const value = useMemo(
     () => ({
@@ -198,6 +351,7 @@ export const WorkspaceProvider = function({ children }) {
       queueAction,
       processPendingActions,
       refreshWorkspaces: loadWorkspaces,
+      repo, // workspace-scoped repository
     }),
     [
       workspaces,
@@ -207,6 +361,7 @@ export const WorkspaceProvider = function({ children }) {
       queueAction,
       processPendingActions,
       loadWorkspaces,
+      repo,
     ],
   );
 

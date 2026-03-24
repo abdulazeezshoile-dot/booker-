@@ -58,26 +58,28 @@ export default function TransactionsScreen({ navigation }) {
       </View>
 
       {loading ? (
-        <View style={{ alignSelf: 'center', width: contentWidth, paddingHorizontal: 12, marginTop: 12 }}>
-          <SkeletonBlock height={18} width="40%" />
-          <SkeletonBlock height={64} />
-          <SkeletonBlock height={64} />
-          <SkeletonBlock height={64} />
+        <View style={{ alignSelf: 'center', width: contentWidth, paddingHorizontal: 12, marginTop: 24 }}>
+          <SkeletonBlock height={26} width="45%" style={{ marginBottom: 18, borderRadius: 8 }} />
+          <SkeletonBlock height={80} style={{ marginBottom: 18, borderRadius: 16 }} />
+          <SkeletonBlock height={80} style={{ marginBottom: 18, borderRadius: 16 }} />
+          <SkeletonBlock height={80} style={{ marginBottom: 18, borderRadius: 16 }} />
         </View>
       ) : (
         <FlatList
           data={transactions}
           keyExtractor={(t, index) => (t?.id != null ? String(t.id) : `tx-${index}`)}
           style={{ alignSelf: 'center', width: contentWidth }}
-          contentContainerStyle={{ padding: 12, paddingBottom: 20 }}
+          contentContainerStyle={{ padding: 16, paddingBottom: 32 }}
           renderItem={({ item }) => (
-            <Card>
-              <View style={{ flexDirection: 'row', justifyContent: 'space-between' }}>
+            <Card style={{ marginBottom: 16, borderRadius: 14, elevation: 2 }}
+              accessible accessibilityLabel={`Transaction: ${item.type}, ${item.customerName || item.category || 'N/A'}, ${new Date(item.createdAt).toLocaleDateString()}, Amount: ${renderAmount(item)}`}
+            >
+              <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
                 <View>
-                  <Text style={{ color: theme.colors.textPrimary, fontWeight: '700', textTransform: 'capitalize' }}>{item.type}</Text>
-                  <Subtle>{item.customerName || item.category || 'N/A'} • {new Date(item.createdAt).toLocaleDateString()}</Subtle>
+                  <Text style={{ color: theme.colors.textPrimary, fontWeight: '700', textTransform: 'capitalize', fontSize: 16 }}>{item.type}</Text>
+                  <Subtle style={{ marginTop: 2 }}>{item.customerName || item.category || 'N/A'} • {new Date(item.createdAt).toLocaleDateString()}</Subtle>
                 </View>
-                <Text style={{ color: theme.colors.textPrimary, fontWeight: '700' }}>{renderAmount(item)}</Text>
+                <Text style={{ color: theme.colors.textPrimary, fontWeight: '700', fontSize: 16 }}>{renderAmount(item)}</Text>
               </View>
             </Card>
           )}
@@ -86,6 +88,10 @@ export default function TransactionsScreen({ navigation }) {
               icon="receipt-long"
               title="No transactions"
               subtitle="Sales, expenses and debts will appear here"
+              style={{ marginTop: 32 }}
+              ctaLabel="Record a transaction"
+              onCtaPress={() => navigation.navigate('RecordSaleScreen')}
+              accessibilityLabel="No transactions. Record a transaction."
             />
           )}
         />

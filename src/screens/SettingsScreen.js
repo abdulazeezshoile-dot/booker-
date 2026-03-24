@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import {
   View,
   Text,
+  TextInput,
   StyleSheet,
   ScrollView,
   TouchableOpacity,
@@ -14,6 +15,8 @@ import { MaterialIcons } from '@expo/vector-icons';
 import { useTheme } from '../theme/ThemeContext';
 import { useWorkspace } from '../context/WorkspaceContext';
 import { useAuth } from '../context/AuthContext';
+import UpgradeModal from '../components/UpgradeModal';
+import { Picker } from '@react-native-picker/picker';
 
 const SettingsScreen = function({ navigation }) {
   const themeContext = useTheme();
@@ -23,13 +26,75 @@ const SettingsScreen = function({ navigation }) {
   const { width } = useWindowDimensions();
 
   const [showWorkspaceModal, setShowWorkspaceModal] = useState(false);
+  const [showUpgradeModal, setShowUpgradeModal] = useState(false);
+  const [upgradePayload, setUpgradePayload] = useState(null);
 
   const currentWorkspace = workspace.workspaces.find((w) => w.id === workspace.currentWorkspaceId);
   const userRole = user?.role || 'user';
+  const normalizedPlan = user?.plan === 'pro' ? 'pro' : 'basic';
+  const planLimit = normalizedPlan === 'pro' ? 3 : 1;
+  const trialDaysLeft = user?.trialEndsAt
+    ? Math.max(0, Math.ceil((new Date(user.trialEndsAt).getTime() - Date.now()) / (24 * 60 * 60 * 1000)))
+    : 0;
   const contentWidth = Math.min(width - 32, 760);
   const horizontalPadding = width < 380 ? 12 : 16;
   const titleSize = width < 380 ? 24 : 28;
   const subtitleSize = width < 380 ? 14 : 16;
+  const [showTeamModal, setShowTeamModal] = useState(false);
+  const [inviteEmail, setInviteEmail] = useState('');
+  const [inviteRole, setInviteRole] = useState('staff');
+  const [inviteStatus, setInviteStatus] = useState(null);
+  const [teamLoading, setTeamLoading] = useState(false);
+
+        // Invite handler
+  const handleInvite = async () => {
+      setTeamLoading(true);
+        try {
+           const res = await fetch(`/workspaces/${workspace.currentWorkspaceId}/invite`, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ email: inviteEmail, role: inviteRole }),
+            });
+            const data = await res.json();
+            setInviteStatus(data.invited ? 'Invite sent!' : 'Failed');
+          } catch (err) {
+            setInviteStatus('Failed');
+          }
+          setTeamLoading(false);
+        };
+
+
+  const openUpgradeModal = (feature) => {
+    setUpgradePayload({
+      message:
+        normalizedPlan === 'basic'
+          ? 'Your Basic plan allows only 1 workspace. Upgrade to create more workspaces and branches.'
+          : 'You have reached your Pro plan workspace limit. Upgrade to continue creating more workspaces and branches.',
+      meta: {
+        plan: normalizedPlan,
+        limit: planLimit,
+        current: workspace.workspaces.length,
+        feature,
+      },
+    });
+    setShowUpgradeModal(true);
+  };
+
+  const handleCreateWorkspace = () => {
+    if ((workspace.workspaces?.length || 0) >= planLimit) {
+      openUpgradeModal('workspace.create');
+      return;
+    }
+    navigation.navigate('CreateWorkspace');
+  };
+
+  const handleCreateBranch = () => {
+    if ((workspace.workspaces?.length || 0) >= planLimit) {
+      openUpgradeModal('branch.create');
+      return;
+    }
+    navigation.navigate('CreateBranch');
+  };
 
   return (
     <ScrollView
@@ -39,9 +104,10 @@ const SettingsScreen = function({ navigation }) {
         paddingHorizontal: horizontalPadding,
         paddingBottom: Platform.OS === 'web' ? 90 : 100
       }}
+      accessibilityLabel="Settings screen"
     >
       <StatusBar barStyle="dark-content" />
-      <View style={[styles.screenHeader, { width: contentWidth }]}> 
+      <View style={[styles.screenHeader, { width: contentWidth, marginBottom: 8 }]}> 
         <TouchableOpacity
           onPress={() => {
             if (navigation.canGoBack()) {
@@ -50,11 +116,13 @@ const SettingsScreen = function({ navigation }) {
           }}
           style={[styles.backButton, { borderColor: theme.colors.border, opacity: navigation.canGoBack() ? 1 : 0.35 }]}
           disabled={!navigation.canGoBack()}
+          accessibilityLabel="Go back"
         >
           <MaterialIcons name="arrow-back" size={20} color={theme.colors.textPrimary} />
         </TouchableOpacity>
         <Text
           style={[styles.screenTitle, { color: theme.colors.textPrimary, fontSize: titleSize }]}
+          accessibilityRole="header"
         >
           Settings
         </Text>
@@ -151,6 +219,22 @@ const SettingsScreen = function({ navigation }) {
       <View
         style={[styles.settingsCard, { backgroundColor: theme.colors.card, width: contentWidth }]}
       >
+        <View style={styles.settingItem}>
+          <View style={styles.settingInfo}>
+            <MaterialIcons name="workspace-premium" size={24} color={theme.colors.primary} />
+            <View style={styles.settingText}>
+              <Text style={[styles.settingTitle, { color: theme.colors.textPrimary }]}>Current Plan</Text>
+              <Text style={[styles.settingDescription, { color: theme.colors.textSecondary }]}> 
+                {normalizedPlan.toUpperCase()} • {workspace.workspaces?.length || 0}/{planLimit} workspaces
+                {user?.trialStatus === 'active' ? ` • Trial: ${trialDaysLeft} day${trialDaysLeft === 1 ? '' : 's'} left` : ''}
+              </Text>
+            </View>
+          </View>
+          <TouchableOpacity onPress={() => openUpgradeModal('plan.view')}>
+            <MaterialIcons name="arrow-upward" size={24} color={theme.colors.primary} />
+          </TouchableOpacity>
+        </View>
+
         {/* Switch Workspace */}
         <View style={styles.settingItem}>
           <View style={styles.settingInfo}>
@@ -186,46 +270,89 @@ const SettingsScreen = function({ navigation }) {
               </Text>
             </View>
           </View>
-          <TouchableOpacity onPress={function() { navigation.navigate('CreateWorkspace'); }}>
+          <TouchableOpacity onPress={handleCreateWorkspace}>
             <MaterialIcons name="add-circle" size={24} color={theme.colors.primary} />
           </TouchableOpacity>
         </View>
 
-        {/* Branch Manager */}
-        <View style={styles.settingItem}>
-          <View style={styles.settingInfo}>
-            <MaterialIcons name="account-tree" size={24} color={theme.colors.primary} />
-            <View style={styles.settingText}>
-              <Text style={[styles.settingTitle, { color: theme.colors.textPrimary }]}> 
-                Branch Manager
-              </Text>
-              <Text style={[styles.settingDescription, { color: theme.colors.textSecondary }]}> 
-                View and manage workspace branches
-              </Text>
-            </View>
-          </View>
-          <TouchableOpacity onPress={function() { navigation.navigate('BranchList'); }}>
-            <MaterialIcons name="chevron-right" size={24} color={theme.colors.textSecondary} />
-          </TouchableOpacity>
-        </View>
 
-        {/* Create Branch */}
+        {/* Team Management */}
         <View style={[styles.settingItem, { borderBottomWidth: 0 }]}> 
           <View style={styles.settingInfo}>
-            <MaterialIcons name="add-location-alt" size={24} color={theme.colors.primary} />
+            <MaterialIcons name="group" size={24} color={theme.colors.primary} />
             <View style={styles.settingText}>
               <Text style={[styles.settingTitle, { color: theme.colors.textPrimary }]}> 
-                Create Branch
+                Team Management
               </Text>
               <Text style={[styles.settingDescription, { color: theme.colors.textSecondary }]}> 
-                Add new branch to workspace
+                Invite and manage workspace team members
               </Text>
             </View>
           </View>
-          <TouchableOpacity onPress={function() { navigation.navigate('CreateBranch'); }}>
-            <MaterialIcons name="add-circle" size={24} color={theme.colors.primary} />
+          <TouchableOpacity onPress={() => setShowTeamModal(true)}>
+            <MaterialIcons name="group-add" size={24} color={theme.colors.primary} />
           </TouchableOpacity>
         </View>
+
+        {/* Team Management Modal */}
+        {showTeamModal && (
+          <Modal
+            visible={showTeamModal}
+            animationType="slide"
+            transparent={true}
+            onRequestClose={() => setShowTeamModal(false)}
+          >
+            <View style={styles.modalOverlay}>
+              <View style={[styles.modalContent, { backgroundColor: theme.colors.card, maxHeight: '80%' }]}>
+                <View style={styles.modalHeader}>
+                  <Text style={[styles.modalTitle, { color: theme.colors.textPrimary }]}>Team Management</Text>
+                  <TouchableOpacity onPress={() => setShowTeamModal(false)}>
+                    <MaterialIcons name="close" size={24} color={theme.colors.textSecondary} />
+                  </TouchableOpacity>
+                </View>
+                <ScrollView style={styles.modalBody}>
+                  {(currentWorkspace?.users || []).map((member) => (
+                    <View key={member.id} style={styles.workspaceItem}>
+                      <Text style={[styles.roleAssignmentUserName, { color: theme.colors.textPrimary }]}>{member.name} ({member.email})</Text>
+                      <Text style={[styles.roleAssignmentCurrentRole, { color: theme.colors.textSecondary }]}>Role: {member.role}</Text>
+                    </View>
+                  ))}
+                  <View style={{ marginTop: 24 }}>
+                    <Text style={[styles.settingTitle, { color: theme.colors.textPrimary }]}>Invite Team Member</Text>
+                    <View style={{ flexDirection: 'row', alignItems: 'center', marginTop: 8 }}>
+                      <TextInput
+                        style={[styles.input, { flex: 1, color: theme.colors.textPrimary, borderColor: theme.colors.border }]}
+                        placeholder="Email"
+                        value={inviteEmail}
+                        onChangeText={setInviteEmail}
+                        autoCapitalize="none"
+                        keyboardType="email-address"
+                      />
+                      <Picker
+                        selectedValue={inviteRole}
+                        style={{ width: 120, color: theme.colors.textPrimary }}
+                        onValueChange={setInviteRole}
+                      >
+                        <Picker.Item label="Staff" value="staff" />
+                        <Picker.Item label="Manager" value="manager" />
+                        <Picker.Item label="Owner" value="owner" />
+                      </Picker>
+                      <TouchableOpacity onPress={handleInvite} disabled={teamLoading} style={{ marginLeft: 8 }}>
+                        <MaterialIcons name="send" size={24} color={theme.colors.primary} />
+                      </TouchableOpacity>
+                    </View>
+                    {inviteStatus && <Text style={{ color: theme.colors.textSecondary, marginTop: 8 }}>{inviteStatus}</Text>}
+                  </View>
+                </ScrollView>
+                <View style={styles.modalActions}>
+                  <TouchableOpacity style={[styles.modalButton, styles.updateButton, { backgroundColor: theme.colors.primary }]} onPress={() => setShowTeamModal(false)}>
+                    <Text style={styles.updateButtonText}>Done</Text>
+                  </TouchableOpacity>
+                </View>
+              </View>
+            </View>
+          </Modal>
+        )}
       </View>
 
       <View
@@ -373,6 +500,23 @@ const SettingsScreen = function({ navigation }) {
       <View
         style={[styles.settingsCard, { backgroundColor: theme.colors.card, width: contentWidth }]}
       >
+        <View style={[styles.settingItem, { borderBottomWidth: 0 }]}>
+          <View style={styles.settingInfo}>
+            <MaterialIcons name="payments" size={24} color={theme.colors.primary} />
+            <View style={styles.settingText}>
+              <Text style={[styles.settingTitle, { color: theme.colors.textPrimary }]}>Subscription & Billing</Text>
+              <Text style={[styles.settingDescription, { color: theme.colors.textSecondary }]}>Manage plan, add-ons and usage</Text>
+            </View>
+          </View>
+          <TouchableOpacity onPress={() => navigation.navigate('Subscription')}>
+            <MaterialIcons name="chevron-right" size={24} color={theme.colors.textSecondary} />
+          </TouchableOpacity>
+        </View>
+      </View>
+
+      <View
+        style={[styles.settingsCard, { backgroundColor: theme.colors.card, width: contentWidth }]}
+      >
         <TouchableOpacity
           style={styles.logoutButton}
           onPress={logout}
@@ -380,6 +524,20 @@ const SettingsScreen = function({ navigation }) {
           <Text style={[styles.logoutText, { color: theme.colors.primary }]}>Sign out</Text>
         </TouchableOpacity>
       </View>
+
+      <UpgradeModal
+        visible={showUpgradeModal}
+        onClose={() => setShowUpgradeModal(false)}
+        onUpgrade={() => {
+          setShowUpgradeModal(false);
+          navigation.navigate('Subscription');
+        }}
+        title="Upgrade required"
+        message={upgradePayload?.message}
+        plan={upgradePayload?.meta?.plan || normalizedPlan}
+        limit={upgradePayload?.meta?.limit || planLimit}
+        current={upgradePayload?.meta?.current || (workspace.workspaces?.length || 0)}
+      />
 
     </ScrollView>
   );

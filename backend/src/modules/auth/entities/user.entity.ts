@@ -44,6 +44,27 @@ export class User {
   @Column({ default: true })
   isActive: boolean;
 
+  @Column({ default: false })
+  emailVerified: boolean;
+
+  @Column({ type: 'varchar', nullable: true })
+  emailVerificationCode: string | null;
+
+  @Column({ type: 'timestamp', nullable: true })
+  emailVerificationExpiresAt: Date | null;
+
+  @Column({ type: 'timestamp', nullable: true })
+  emailVerificationLastSentAt: Date | null;
+
+  @Column({ type: 'varchar', nullable: true })
+  passwordResetCode: string | null;
+
+  @Column({ type: 'timestamp', nullable: true })
+  passwordResetExpiresAt: Date | null;
+
+  @Column({ type: 'timestamp', nullable: true })
+  passwordResetLastSentAt: Date | null;
+
   @ManyToMany(() => Workspace, (workspace) => workspace.users)
   @JoinTable({
     name: 'workspace_users',

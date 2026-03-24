@@ -4,9 +4,12 @@ import { WorkspaceService } from './workspace.service';
 import { WorkspaceController } from './workspace.controller';
 import { Workspace } from './entities/workspace.entity';
 import { User } from '../auth/entities/user.entity';
+import { WorkspaceInvite } from './entities/invite.entity';
+import { BillingModule } from '../billing/billing.module';
+import { NotificationsModule } from '../notifications/notifications.module';
 
 @Module({
-  imports: [TypeOrmModule.forFeature([Workspace, User])],
+  imports: [TypeOrmModule.forFeature([Workspace, User, WorkspaceInvite]), BillingModule, NotificationsModule],
   providers: [WorkspaceService],
   controllers: [WorkspaceController],
   exports: [WorkspaceService],

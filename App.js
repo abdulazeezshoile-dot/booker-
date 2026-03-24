@@ -10,6 +10,7 @@ import AuthStack from './src/navigation/AuthStack';
 import ReAuthStack from './src/navigation/ReAuthStack';
 import WorkspaceSetupScreen from './src/screens/workspace/WorkspaceSetupScreen';
 import { AuthProvider, useAuth } from './src/context/AuthContext';
+import { CustomerSelectProvider } from './src/context/CustomerSelectContext';
 import { initDb } from './src/storage/sqlite';
 
 const Stack = createNativeStackNavigator();
@@ -43,7 +44,9 @@ function RootNavigator() {
 
 export default function App() {
   useEffect(() => {
-    initDb();
+    initDb().catch(() => {
+      // Keep app boot resilient if local SQLite is temporarily unavailable.
+    });
   }, []);
 
   return (
@@ -51,9 +54,11 @@ export default function App() {
       <AuthProvider>
         <ThemeProvider>
           <WorkspaceProvider>
-            <NavigationContainer>
-              <RootNavigator />
-            </NavigationContainer>
+            <CustomerSelectProvider>
+              <NavigationContainer>
+                <RootNavigator />
+              </NavigationContainer>
+            </CustomerSelectProvider>
           </WorkspaceProvider>
         </ThemeProvider>
       </AuthProvider>

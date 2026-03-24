@@ -22,7 +22,7 @@ Ship monetizable core features in a safe sequence:
 
 ## Cross-Cutting Foundation: Infra + Async Processing
 
-### INFRA-1: SMTP + background job pipeline
+### INFRA-1: SMTP + background job pipeline (Completed)
 - Integrate SMTP provider (via Nest mailer service + transport config)
 - Add background jobs (queue + worker) for non-blocking email send
 - Add retry policy, dead-letter handling, and idempotency key support
@@ -50,6 +50,47 @@ Ship monetizable core features in a safe sequence:
 
 ## Phase 1: Subscription + Workspace Limits (In Progress)
 
+### P1-COM-1: Commercial definition (Pro plan + add-ons)
+- Basic plan includes:
+  - 1 workspace (single branch)
+  - Unlimited products and transactions
+  - Inventory management
+  - Debt tracking
+  - Expense tracking
+  - Basic reports
+  - CSV/Excel export
+  - Receipt generation
+  - Customer profiles
+  - Low stock push notifications
+- Pro plan includes:
+  - Everything in Basic
+  - Up to 3 workspaces (multi-branch)
+  - Up to 5 staff accounts
+  - Advanced reports + trends
+  - WhatsApp debt reminders (automated)
+  - WhatsApp payment receipts
+  - WhatsApp low stock alerts to owner
+  - WhatsApp monthly business summary
+  - Included WhatsApp quota: 100 messages/month
+  - Priority support
+- Pro add-ons:
+  - Extra branch/workspace slot: `₦1,500/month` each
+  - Extra staff seat: `₦500/month` each
+  - Extra WhatsApp messages bundle: `100 messages = ₦2,000` (~`₦20-25` per message)
+- Billing cycles:
+  - Monthly billing (default)
+  - Yearly billing at `20% discount` compared to 12 months
+- Fair-use policy:
+  - When included WhatsApp quota is exhausted, automation pauses
+  - Automation resumes only when a WhatsApp message add-on is active
+- Trial policy:
+  - 14-day free trial grants Pro base features only
+  - No add-ons can be purchased or applied while trial is active
+- Acceptance:
+  - Limits and quotas are deterministic and enforceable in backend
+  - UI displays included limits and add-on costs clearly before checkout
+  - Quota exhaustion state is visible and actionable
+
 ### P1-BE-0: 14-day free trial policy (Required)
 - Add trial fields on user/subscription domain:
   - `trialStartAt`
@@ -58,6 +99,7 @@ Ship monetizable core features in a safe sequence:
 - Default new accounts to `pro` plan with `trialStatus=active` for 14 days
 - Enforce feature access by plan + trial state:
   - During trial: Pro-gated features allowed
+  - During trial: add-ons are disabled (Pro base only)
   - After trial expiry without upgrade: block access and require paid upgrade
 - Add endpoint metadata so frontend can show trial countdown (`daysLeft`)
 - Acceptance:
@@ -100,6 +142,65 @@ Ship monetizable core features in a safe sequence:
   - User sees meaningful reason and next step
   - No silent failures
 
+### P1-FE-3: Subscription selection screen (Paywall)
+- Add dedicated subscription screen where user selects a paid plan after trial
+- Plans shown with pricing, limits, and feature comparison
+- Screen entry points:
+  - Trial expired login block
+  - Upgrade CTA from `UpgradeModal`
+  - Settings billing section
+- Acceptance:
+  - User can always reach a full plan selection page (not only a modal)
+  - Selected plan starts checkout flow
+
+### P1-BE-3: Subscription and billing backend logic
+- Add subscription domain model (status, plan, period, trial linkage, renewal dates)
+- Add endpoints for:
+  - current subscription status
+  - available plans
+  - initiate upgrade
+  - verify/activate subscription
+- Encode included Pro quotas and add-on multipliers in billing logic:
+  - workspaceLimit = 3 + addonWorkspaceSlots
+  - staffSeatLimit = 5 + addonStaffSeats
+  - whatsappMonthlyQuota = 100 + addonWhatsappBundles * 100
+- Encode Basic plan entitlements in billing logic:
+  - workspaceLimit = 1
+  - products/transactions = unlimited
+  - features = inventory, debt, expense, basic reports, csv/export, receipt, customer profiles, low-stock push alerts
+- Trial guard:
+  - when `trialStatus=active`, force add-on quantities to zero
+- Enforce access by subscription status (active, trialing, expired, cancelled)
+- Acceptance:
+  - Trial-expired users are blocked until paid plan is active
+  - Subscription state is source of truth for access checks
+
+### P1-BE-4: Paystack payment integration
+- Integrate Paystack transaction initialize/verify APIs
+- Save payment reference and map to internal subscription record
+- Add Paystack webhook endpoint with signature verification and idempotency handling
+- Handle events: charge.success, charge.failed, subscription events where applicable
+- Handle purchase targets:
+  - plan upgrade purchase
+  - add-on purchase (workspace slot, staff seat, WhatsApp bundle)
+- Acceptance:
+  - Successful Paystack payments activate selected plan
+  - Failed payments do not activate plan
+  - Webhook retries do not create duplicate upgrades
+
+### P1-FE-4: Plan details + add-ons in subscription UI
+- Show included Pro features and limits in plan selection screen
+- Add add-on selector UI for:
+  - extra workspace slots
+  - extra staff seats
+  - WhatsApp bundles
+- Show live pricing calculator before checkout
+- Show quota/seat/slot usage indicators in settings and billing screens
+- Acceptance:
+  - User understands exactly what is included vs paid as add-on
+  - User can buy plan + add-ons in a single checkout flow
+  - User can buy additional add-ons later from billing settings
+
 ## Phase 2: Customer + Debt Improvements
 
 ### P2-BE-1: Customer entity + CRUD
@@ -125,7 +226,7 @@ Ship monetizable core features in a safe sequence:
 
 ## Phase 3: Auth Security (Email Verification + Password Reset OTP)
 
-### P3-BE-1: Registration email verification (6-digit OTP)
+### P3-BE-1: Registration email verification (6-digit OTP) (Completed)
 - On registration, generate 6-digit verification code and expiry
 - Queue email send via background job (SMTP)
 - Add verify endpoint to activate account/email status
@@ -134,7 +235,7 @@ Ship monetizable core features in a safe sequence:
   - User cannot use protected flows until email is verified (policy-controlled)
   - Verification code is single-use and expires correctly
 
-### P3-BE-2: Forgot password via 6-digit code
+### P3-BE-2: Forgot password via 6-digit code (Completed)
 - Generate 6-digit reset code + expiry for forgot password
 - Send reset code by background email job
 - Add endpoints: request reset, verify code, set new password
@@ -143,7 +244,7 @@ Ship monetizable core features in a safe sequence:
   - Valid code allows password reset
   - Expired/invalid code is rejected with clear error
 
-### P3-FE-1: Verification and reset screens update
+### P3-FE-1: Verification and reset screens update (Completed)
 - Add OTP input flow for registration verification
 - Update forgot password screen to handle 6-digit code verification + new password
 - Add resend timer UI and friendly error states
@@ -329,6 +430,10 @@ Use a consistent payload for blocked actions:
 
 ## Environment Variables Checklist
 - `CORS_ORIGIN`
+- `PAYSTACK_SECRET_KEY`
+- `PAYSTACK_PUBLIC_KEY`
+- `PAYSTACK_WEBHOOK_SECRET`
+- `PAYSTACK_CALLBACK_URL`
 - `SMTP_HOST`
 - `SMTP_PORT`
 - `SMTP_USER`
@@ -378,3 +483,306 @@ Finally (polish + store prep — done last so there's a complete app to polish/s
 Also — the build ran with exit code 1. Do you want me to check what the build error was before we continue?
 
 Claude Sonnet 4.6 • 0.9x
+
+## Phase 9: Offline-First Excellence (Workspace-Isolated + Android Biometric Unlock)
+
+### P9-ARC-1: Core offline architecture principles
+- Local-first reads: app UI reads from local database first, then sync updates from server
+- Eventual sync writes: all create/update/delete operations are queued and replayed when online
+- Workspace isolation by design: each record must be bound to one workspace key and never leak across workspaces
+- Sync transparency: pending/failed/synced status visible at row level (not only global)
+- Safe conflict handling: predictable merge policy and retry strategy
+
+### P9-DATA-1: Workspace-isolated local schema
+- Add local tables with mandatory workspace ownership fields:
+  - `local_workspaces`
+  - `local_inventory`
+  - `local_transactions`
+  - `local_debts`
+  - `sync_outbox`
+  - `id_mapping` (local ID -> server ID)
+- Required columns for local entities:
+  - `local_id`
+  - `server_id` (nullable)
+  - `workspace_local_id`
+  - `workspace_server_id` (nullable)
+  - `sync_status` (`pending_create` | `pending_update` | `pending_delete` | `synced` | `failed`)
+  - `last_error` (nullable)
+  - `updated_at_local`
+- Acceptance:
+  - Data from workspace A never appears in workspace B local queries
+  - Each list query is filtered by the active workspace identifier
+
+### P9-DATA-2: Local workspace catalog and switching behavior
+- Persist all known workspaces in `local_workspaces`
+- Include both synced and offline-created workspaces
+- Workspace switcher behavior:
+  - Show synced workspaces
+  - Show pending offline-created workspaces with "Not synced" label
+  - Show failed workspaces with retry affordance
+- Acceptance:
+  - User can switch among locally available workspaces while offline
+  - Unknown/non-downloaded workspaces are not shown as available offline data sources
+
+### P9-DATA-3: Offline workspace creation with dependency-safe sync
+- When offline workspace create is attempted:
+  - Create local workspace row immediately (`sync_status=pending_create`)
+  - Set active workspace to local workspace ID
+  - Queue `create_workspace` action in outbox
+- Child operations (inventory/sales/debt) created under this workspace must reference local workspace ID and include dependency metadata
+- On reconnect:
+  - Sync workspace create first
+  - Save local->server workspace ID mapping in `id_mapping`
+  - Rewrite dependent queued actions to resolved server workspace ID
+  - Continue replay of dependent actions
+- Acceptance:
+  - User can create workspace offline and continue work immediately
+  - All dependent actions replay correctly after reconnect
+
+### P9-SYNC-1: Outbox model upgrade (structured actions)
+- Replace URL-only queued actions with structured payload:
+  - `action_id`
+  - `action_type`
+  - `entity_type`
+  - `entity_local_id`
+  - `workspace_ref` (local/server)
+  - `payload`
+  - `depends_on_action_id` (nullable)
+  - `retry_count`
+  - `next_retry_at`
+  - `last_error`
+- Add deterministic processing order and exponential backoff retries
+- Acceptance:
+  - Queue can handle parent-child dependencies and partial failures safely
+  - Failed actions do not block unrelated workspace sync actions
+
+### P9-SYNC-2: Read model = local base + pending overlay
+- Lists should be rendered from local tables by default
+- Overlay pending changes so users instantly see offline-created/edited/deleted items
+- Add per-record sync badges:
+  - Not synced
+  - Syncing
+  - Failed (tap to retry)
+- Acceptance:
+  - Offline actions are immediately visible in inventory/sales/debt lists
+  - Users can distinguish local pending data from synced data
+
+### P9-SYNC-3: Sync conflict policy
+- Initial policy:
+  - Last-write-wins based on `updated_at` for non-critical fields
+  - Server authoritative for immutable IDs and access rules
+- Domain-specific safeguards:
+  - Inventory quantity conflict prompts on high-risk mismatch
+  - Preserve local notes/comments where possible
+- Acceptance:
+  - Conflicts resolve predictably and are user-recoverable
+
+### P9-AUTH-1: Offline authentication capability model
+- Constraint:
+  - First-time login requires internet
+  - Returning authenticated user can unlock app offline
+- Keep encrypted session token/user profile on device
+- Add offline unlock mode when network unavailable and cached session exists
+- Acceptance:
+  - Offline login is supported for returning users only
+  - Fresh account login while fully offline is blocked with clear message
+
+### P9-AUTH-2: Android-only biometric unlock (fingerprint)
+- Integrate Android biometric unlock via Expo Local Authentication
+- Flow:
+  - User opts in after successful online login
+  - Device biometric capability and enrollment are checked
+  - On app resume/offline mode, unlock with fingerprint
+  - Fallback to passcode/PIN if biometric unavailable
+- Policy:
+  - Android only for now
+  - iOS postponed
+- Acceptance:
+  - Returning Android users can unlock offline with fingerprint
+  - Failed biometric attempts fall back gracefully to secure alternative
+
+### P9-UX-1: Offline user experience standards
+- Always show connectivity state (online/offline) in subtle status area
+- Row-level sync status indicators in list items
+- Local operation toasts:
+  - Added locally, pending sync
+  - Synced successfully
+  - Sync failed, retry available
+- Workspace-aware messaging:
+  - "You are viewing offline data for [workspace name]"
+- Acceptance:
+  - No silent offline behavior
+  - Users understand what is pending vs synced
+
+### P9-SEC-1: Security and privacy for local data
+- Encrypt sensitive local session/auth metadata
+- Avoid storing unnecessary sensitive PII in plaintext
+- Add local data clear options:
+  - Sign out clears auth + queue
+  - Optional "Clear offline cache" action
+- Acceptance:
+  - Offline mode does not weaken baseline security posture
+
+### P9-QA-1: Test matrix for offline reliability
+- Required manual and automated scenarios:
+  - Online login -> go offline -> create records -> relaunch -> data persists
+  - Offline workspace create -> add transactions -> reconnect -> sync order correct
+  - Switch workspace offline -> verify strict data separation
+  - Biometric unlock success/fail/lockout paths on Android
+  - Token expired while offline -> allow local access, defer server calls
+- Acceptance:
+  - No cross-workspace leakage in offline mode
+  - No data loss across app restarts and reconnect cycles
+
+## Phase 9 Execution Order (Top Priority Offline Work)
+1. Implement local workspace catalog and workspace-scoped local schema
+2. Implement structured outbox with dependency support
+3. Implement offline workspace creation + ID mapping replay
+4. Migrate list screens to local-first reads + pending overlay
+5. Add row-level sync badges and retry actions
+6. Add Android biometric offline unlock flow
+7. Add conflict resolution rules and error recovery UI
+8. Run offline QA matrix and stabilize
+
+## New Environment/Config Additions for Offline Phase
+- `OFFLINE_MODE_ENABLED=true`
+- `OFFLINE_SYNC_MAX_RETRIES=5`
+- `OFFLINE_SYNC_BACKOFF_BASE_MS=1500`
+- `ANDROID_BIOMETRIC_UNLOCK_ENABLED=true`
+
+## Definition Of Done for Offline-First Phase
+- Workspace data isolation guaranteed in local queries and UI
+- Offline-created workspaces and child records sync successfully after reconnect
+- Pending local records always visible in their workspace with status labels
+- Returning Android users can unlock offline with fingerprint
+- No silent sync failures (all failures visible and retryable)
+
+## Phase 9 Ticket Backlog (Execution-Ready)
+
+### Sprint 1: Foundation (Schema + Outbox + Workspace Isolation)
+
+#### P9-BE-1: Local SQLite schema migration for offline-first entities
+- Scope:
+  - Add/upgrade local tables: `local_workspaces`, `local_inventory`, `local_transactions`, `local_debts`, `sync_outbox`, `id_mapping`
+  - Add indexes for `(workspace_local_id, updated_at_local)` and `(sync_status, next_retry_at)`
+- Dependencies: none
+- Acceptance:
+  - App boots with migrated schema on existing installs
+  - Workspace-scoped local queries are fast and deterministic
+
+#### P9-BE-2: Structured outbox service with dependency graph support
+- Scope:
+  - Replace URL-only queue shape with structured outbox record
+  - Add `depends_on_action_id` handling and ordered replay
+  - Add exponential retry/backoff fields and failure tracking
+- Dependencies: `P9-BE-1`
+- Acceptance:
+  - Parent-child actions replay in valid order
+  - Failed actions are retained with actionable `last_error`
+
+#### P9-BE-3: Workspace identity mapping service (local_id <-> server_id)
+- Scope:
+  - Create mapper API in local sync layer
+  - Resolve local workspace references before replaying child actions
+  - Persist mapping in `id_mapping` table
+- Dependencies: `P9-BE-1`, `P9-BE-2`
+- Acceptance:
+  - Offline-created workspace can receive server ID and unlock child action replay
+
+#### P9-FE-1: Workspace-scoped repository abstraction
+- Scope:
+  - Introduce repository helpers that always require workspace reference
+  - Block cross-workspace reads/writes at helper level
+- Dependencies: `P9-BE-1`
+- Acceptance:
+  - No screen can accidentally query data outside active workspace
+
+### Sprint 2: User-visible Offline Correctness (Immediate Local Visibility)
+
+#### P9-FE-2: Offline workspace creation and switching UX
+- Scope:
+  - Allow creating workspace offline with local immediate creation
+  - Show workspace statuses (`Synced`, `Not synced`, `Failed`)
+  - Keep active workspace on local ID until mapped
+- Dependencies: `P9-BE-2`, `P9-BE-3`, `P9-FE-1`
+- Acceptance:
+  - User can create/switch workspaces offline without data leakage
+
+#### P9-FE-3: Local-first list rendering with pending overlay
+- Scope:
+  - Migrate Inventory/Sales/Debt screens to local-first reads
+  - Overlay pending actions to reflect unsynced creates/updates/deletes immediately
+- Dependencies: `P9-FE-1`, `P9-BE-2`
+- Acceptance:
+  - Offline-created records appear instantly on relevant screens
+
+#### P9-FE-4: Row-level sync state badges and retry actions
+- Scope:
+  - Add per-row badges: `Not synced`, `Syncing`, `Failed`
+  - Add tap-to-retry for failed rows/actions
+- Dependencies: `P9-FE-3`
+- Acceptance:
+  - Users can identify and recover failed sync records without leaving screen
+
+#### P9-BE-4: Sync coordinator worker in app context
+- Scope:
+  - Centralize reconnect triggers and replay cycles
+  - Guard against concurrent replay race conditions
+- Dependencies: `P9-BE-2`, `P9-BE-3`
+- Acceptance:
+  - One stable sync loop runs per device session
+
+### Sprint 3: Secure Offline Access (Android Fingerprint)
+
+#### P9-FE-5: Android biometric offline unlock (Expo LocalAuthentication)
+- Scope:
+  - Add biometric capability checks for Android only
+  - Add opt-in toggle after successful online auth
+  - Add unlock flow for offline returning users
+- Dependencies: `P9-FE-3`
+- Acceptance:
+  - Returning Android user can unlock app offline using fingerprint
+
+#### P9-FE-6: Offline auth fallback and guard policies
+- Scope:
+  - If biometric fails/unavailable, fallback to secure local unlock (PIN/passcode path)
+  - Keep first-time login online-only
+  - Allow local access with expired token while offline (defer server calls)
+- Dependencies: `P9-FE-5`
+- Acceptance:
+  - Offline unlock path is resilient and predictable for Android users
+
+### Sprint 4: Hardening (Conflict + QA + Observability)
+
+#### P9-BE-5: Conflict resolution policy implementation
+- Scope:
+  - Implement default last-write-wins where safe
+  - Implement inventory quantity conflict detect-and-prompt hooks
+- Dependencies: `P9-BE-4`, `P9-FE-3`
+- Acceptance:
+  - Conflicts are surfaced with deterministic outcome rules
+
+#### P9-QA-2: Offline reliability test suite
+- Scope:
+  - Automated + manual matrix for:
+    - offline workspace create + child actions
+    - cross-workspace isolation
+    - app restart recovery
+    - biometric unlock scenarios
+- Dependencies: all P9 implementation tasks
+- Acceptance:
+  - Test matrix passes with no critical data-loss or cross-workspace defects
+
+## Phase 9 Task Sequence to Append to Active Todo List
+1. `P9-BE-1` Local SQLite schema migration for offline-first entities
+2. `P9-BE-2` Structured outbox with dependency support
+3. `P9-BE-3` Workspace ID mapping service
+4. `P9-FE-1` Workspace-scoped repository abstraction
+5. `P9-FE-2` Offline workspace create/switch UX
+6. `P9-FE-3` Local-first list rendering + pending overlay
+7. `P9-FE-4` Row-level sync badges + retry actions
+8. `P9-BE-4` Central sync coordinator worker
+9. `P9-FE-5` Android biometric offline unlock
+10. `P9-FE-6` Offline auth fallback guard policies
+11. `P9-BE-5` Conflict resolution policy
+12. `P9-QA-2` Offline reliability test suite

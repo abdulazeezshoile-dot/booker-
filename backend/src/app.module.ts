@@ -8,6 +8,8 @@ import { AuthModule } from './modules/auth/auth.module';
 import { WorkspaceModule } from './modules/workspace/workspace.module';
 import { InventoryModule } from './modules/inventory/inventory.module';
 import { TransactionsModule } from './modules/transactions/transactions.module';
+import { BillingModule } from './modules/billing/billing.module';
+import { CustomerModule } from './modules/customer/customer.module';
 
 @Module({
   imports: [
@@ -20,6 +22,8 @@ import { TransactionsModule } from './modules/transactions/transactions.module';
     WorkspaceModule,
     InventoryModule,
     TransactionsModule,
+    BillingModule,
+    CustomerModule,
   ],
   controllers: [AppController],
   providers: [AppService],

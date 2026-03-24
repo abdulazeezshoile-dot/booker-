@@ -23,6 +23,8 @@ TestResults.xml
 node_modules
 .env
 backend/.env
+.ens
+backend/.ens
 FEATURES_ROADMAP.md
 SPRINT_PLAN_W1_W6.md
 WHATSAPP_PRICING_AND_PERMISSION_MATRIX.md

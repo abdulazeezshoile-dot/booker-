@@ -23,7 +23,7 @@ import { EmptyState, SkeletonBlock } from '../components/UI';
 const HomeScreen = function({ navigation }) {
   const themeContext = useTheme();
   const theme = themeContext.theme;
-  const { currentWorkspaceId, queueAction, workspaces } = useWorkspace();
+  const { currentWorkspaceId, queueAction, workspaces, repo } = useWorkspace();
   const currentWorkspace = workspaces.find((workspace) => workspace.id === currentWorkspaceId);
 
   const [items, setItems] = useState([]);
@@ -34,6 +34,7 @@ const HomeScreen = function({ navigation }) {
   const [newQuantity, setNewQuantity] = useState('');
   const isLikelyOfflineError = (err) => !err?.response;
 
+  // Local-first list rendering with pending overlay
   const loadItems = useCallback(async () => {
     if (!currentWorkspaceId) {
       setItems([]);
@@ -44,22 +45,33 @@ const HomeScreen = function({ navigation }) {
     setError(null);
 
     try {
-      const data = await api.get(`/workspaces/${currentWorkspaceId}/inventory`);
-      const list = Array.isArray(data) ? data : [];
-      setItems(list);
-      cacheInventory(currentWorkspaceId, list);
-    } catch (err) {
-      const cached = await getCachedInventory(currentWorkspaceId);
-      if (cached && cached.length > 0) {
-        setItems(cached);
-        setError('Offline mode: showing last known inventory');
-      } else {
-        setError(err?.message || 'Unable to load inventory items');
+      // Always read from local repo first
+      const localRows = await repo.getInventory();
+      let localList = [];
+      if (localRows?.rows?.length > 0) {
+        for (let i = 0; i < localRows.rows.length; i++) {
+          const row = localRows.rows.item(i);
+          const data = row.data ? JSON.parse(row.data) : {};
+          localList.push({ ...data, local_id: row.local_id, sync_status: row.sync_status });
+        }
       }
+      setItems(localList);
+
+      // Optionally, fetch remote and update local cache if online
+      try {
+        const data = await api.get(`/workspaces/${currentWorkspaceId}/inventory`);
+        const list = Array.isArray(data) ? data : [];
+        setItems(list);
+        cacheInventory(currentWorkspaceId, list);
+      } catch (err) {
+        // Ignore fetch error, stay local
+      }
+    } catch (err) {
+      setError('Unable to load inventory');
     } finally {
       setLoadingItems(false);
     }
-  }, [currentWorkspaceId]);
+  }, [currentWorkspaceId, repo]);
 
   useFocusEffect(
     useCallback(() => {
@@ -70,6 +82,7 @@ const HomeScreen = function({ navigation }) {
   const [searchText, setSearchText] = useState('');
   const [filterCategory, setFilterCategory] = useState('All');
 
+  // Overlay pending changes (e.g., pending_create, pending_update, failed)
   const filteredItems = useMemo(function() {
     return items.filter(function(item) {
       const itemName = (item.name || '').toLowerCase();
@@ -82,6 +95,54 @@ const HomeScreen = function({ navigation }) {
       return matchesSearch && matchesCategory;
     });
   }, [items, searchText, filterCategory]);
+
+  // Add sync status badge to each row (Not synced, Syncing, Failed) and retry button for failed
+  const renderSyncBadge = (item) => {
+    if (item.sync_status === 'pending_create' || item.sync_status === 'pending_update') {
+      return <Text style={{ color: '#FFA500', fontSize: 11, marginLeft: 6 }}>Not synced</Text>;
+    }
+    if (item.sync_status === 'failed') {
+      return (
+        <View style={{ flexDirection: 'row', alignItems: 'center', marginLeft: 6 }}>
+          <Text style={{ color: '#E53935', fontSize: 11 }}>Failed</Text>
+          <TouchableOpacity
+            onPress={() => handleRetrySync(item)}
+            style={{ marginLeft: 4 }}
+            accessibilityLabel="Retry sync"
+          >
+            <MaterialIcons name="refresh" size={16} color="#E53935" />
+          </TouchableOpacity>
+        </View>
+      );
+    }
+    return null;
+  };
+
+  // Row-level retry for failed syncs
+  const handleRetrySync = async (item) => {
+    if (!queueAction || !currentWorkspaceId) return;
+    try {
+      // Re-queue the failed action based on item type
+      let action = null;
+      if (item.sync_status === 'failed') {
+        if (item.local_id && item.pending_action) {
+          // If we have a stored pending_action, re-queue it
+          action = { ...item.pending_action };
+        } else {
+          // Fallback: try to infer action from item
+          action = {
+            method: 'put',
+            path: `/workspaces/${currentWorkspaceId}/inventory/${item.id}`,
+            body: { ...item },
+          };
+        }
+        await queueAction(action);
+        Alert.alert('Retry', 'Sync retry queued and will sync once online');
+      }
+    } catch (err) {
+      Alert.alert('Error', err?.message || 'Unable to retry sync');
+    }
+  };
 
   const categories = useMemo(function() {
     const categorySet = {};
@@ -314,137 +375,143 @@ const HomeScreen = function({ navigation }) {
 
       {loadingItems ? (
         <View style={{ paddingHorizontal: 20, paddingTop: 8 }}>
-          <SkeletonBlock height={20} width="45%" />
-          <SkeletonBlock height={86} />
-          <SkeletonBlock height={86} />
+          <SkeletonBlock height={20} width="45%" style={{ marginBottom: 12 }} />
+          <SkeletonBlock height={86} style={{ marginBottom: 12 }} />
+          <SkeletonBlock height={86} style={{ marginBottom: 12 }} />
           <SkeletonBlock height={86} />
         </View>
       ) : (
-      <FlatList
-        data={filteredItems}
-        keyExtractor={function(item, index) {
-          if (item?.id != null) {
-            return String(item.id);
-          }
-          return `inventory-item-${index}`;
-        }}
-        renderItem={function(itemData) {
-          var item = itemData.item;
-          var isLowStock = Number(item.quantity) < Number(item.reorderLevel || 0);
+        <FlatList
+          data={filteredItems}
+          keyExtractor={function(item, index) {
+            if (item?.id != null) {
+              return String(item.id);
+            }
+            return `inventory-item-${index}`;
+          }}
+          renderItem={function(itemData) {
+            var item = itemData.item;
+            var isLowStock = Number(item.quantity) < Number(item.reorderLevel || 0);
 
-          return (
-            <TouchableOpacity
-              style={[
-                styles.itemCard,
-                { backgroundColor: theme.colors.card, borderColor: theme.colors.border }
-              ]}
-              onPress={function() {
-                handleOpenUpdateModal(item);
-              }}
-            >
-              <View style={styles.itemHeader}>
-                <View style={styles.itemInfo}>
-                  <Text
-                    style={[
-                      styles.itemName,
-                      { color: theme.colors.textPrimary }
-                    ]}
-                  >
-                    {item.name}
-                  </Text>
-                  <View style={styles.itemMeta}>
+            return (
+              <TouchableOpacity
+                style={[
+                  styles.itemCard,
+                  { backgroundColor: theme.colors.card, borderColor: theme.colors.border, marginBottom: 12 }
+                ]}
+                onPress={function() {
+                  handleOpenUpdateModal(item);
+                }}
+                activeOpacity={0.7}
+                accessibilityLabel={`Edit quantity for ${item.name}`}
+              >
+                <View style={styles.itemHeader}>
+                  <View style={styles.itemInfo}>
                     <Text
                       style={[
-                        styles.itemCategory,
-                        { color: theme.colors.textSecondary }
+                        styles.itemName,
+                        { color: theme.colors.textPrimary }
                       ]}
                     >
-                      {item.category || 'Uncategorized'} • {item.location || 'No location'}
+                      {item.name}
                     </Text>
+                    <View style={styles.itemMeta}>
+                      <Text
+                        style={[
+                          styles.itemCategory,
+                          { color: theme.colors.textSecondary }
+                        ]}
+                      >
+                        {item.category || 'Uncategorized'} • {item.location || 'No location'}
+                      </Text>
+                    </View>
+                  </View>
+                  <View style={styles.itemActions}>
+                    <TouchableOpacity
+                      onPress={function() {
+                        handleEditItem(item);
+                      }}
+                      style={styles.actionButton}
+                      activeOpacity={0.7}
+                      accessibilityLabel={`Edit ${item.name}`}
+                    >
+                      <MaterialIcons name="edit" size={18} color={theme.colors.textSecondary} />
+                    </TouchableOpacity>
+                    <TouchableOpacity
+                      onPress={function() {
+                        handleDeleteItem(item.id);
+                      }}
+                      style={styles.actionButton}
+                      activeOpacity={0.7}
+                      accessibilityLabel={`Delete ${item.name}`}
+                    >
+                      <MaterialIcons name="delete" size={18} color={theme.colors.error} />
+                    </TouchableOpacity>
+                    {isLowStock ? (
+                      <View
+                        style={[
+                          styles.lowStockBadge,
+                          { backgroundColor: theme.colors.error }
+                        ]}
+                      >
+                        <MaterialIcons
+                          name="warning"
+                          size={16}
+                          color="#FFFFFF"
+                        />
+                      </View>
+                    ) : null}
                   </View>
                 </View>
-                <View style={styles.itemActions}>
-                  <TouchableOpacity
-                    onPress={function() {
-                      handleEditItem(item);
-                    }}
-                    style={styles.actionButton}
+                <View style={styles.quantitySection}>
+                  <Text
+                    style={[
+                      styles.quantityLabel,
+                      { color: theme.colors.textSecondary }
+                    ]}
                   >
-                    <MaterialIcons name="edit" size={18} color={theme.colors.textSecondary} />
-                  </TouchableOpacity>
-                  <TouchableOpacity
-                    onPress={function() {
-                      handleDeleteItem(item.id);
-                    }}
-                    style={styles.actionButton}
+                    Quantity
+                  </Text>
+                  <Text
+                    style={[
+                      styles.quantityValue,
+                      {
+                        color: isLowStock
+                          ? theme.colors.error
+                          : theme.colors.textPrimary
+                      }
+                    ]}
                   >
-                    <MaterialIcons name="delete" size={18} color={theme.colors.error} />
-                  </TouchableOpacity>
-                  {isLowStock ? (
-                    <View
-                      style={[
-                        styles.lowStockBadge,
-                        { backgroundColor: theme.colors.error }
-                      ]}
-                    >
-                      <MaterialIcons
-                        name="warning"
-                        size={16}
-                        color="#FFFFFF"
-                      />
-                    </View>
-                  ) : null}
+                    {item.quantity != null ? String(item.quantity) : '0'}
+                  </Text>
+                  <Text
+                    style={[
+                      styles.minStockText,
+                      { color: theme.colors.textSecondary }
+                    ]}
+                  >
+                    Min: {item.reorderLevel || 0}
+                  </Text>
                 </View>
-              </View>
-              <View style={styles.quantitySection}>
-                <Text
-                  style={[
-                    styles.quantityLabel,
-                    { color: theme.colors.textSecondary }
-                  ]}
-                >
-                  Quantity
-                </Text>
-                <Text
-                  style={[
-                    styles.quantityValue,
-                    {
-                      color: isLowStock
-                        ? theme.colors.error
-                        : theme.colors.textPrimary
-                    }
-                  ]}
-                >
-                  {item.quantity != null ? String(item.quantity) : '0'}
-                </Text>
-                <Text
-                  style={[
-                    styles.minStockText,
-                    { color: theme.colors.textSecondary }
-                  ]}
-                >
-                  Min: {item.reorderLevel || 0}
-                </Text>
-              </View>
-            </TouchableOpacity>
-          );
-        }}
-        contentContainerStyle={[
-          styles.listContent,
-          {
-            paddingBottom: Platform.OS === 'web' ? 90 : 100
+              </TouchableOpacity>
+            );
+          }}
+          contentContainerStyle={[
+            styles.listContent,
+            {
+              paddingBottom: Platform.OS === 'web' ? 90 : 100
+            }
+          ]}
+          ListEmptyComponent={
+            <EmptyState
+              icon="inventory-2"
+              title="No inventory items yet"
+              subtitle="Tap Add to create your first item"
+              style={styles.emptyState}
+            />
           }
-        ]}
-        ListEmptyComponent={
-          <EmptyState
-            icon="inventory-2"
-            title="No inventory items yet"
-            subtitle="Tap Add to create your first item"
-            style={styles.emptyState}
-          />
-        }
-        showsVerticalScrollIndicator={false}
-      />
+          showsVerticalScrollIndicator={false}
+        />
       )}
 
       {showUpdateModal && selectedItem ? (

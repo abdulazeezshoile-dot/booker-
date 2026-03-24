@@ -3,14 +3,13 @@ import {
   View,
   Text,
   TextInput,
-  TouchableOpacity,
   StyleSheet,
-  ActivityIndicator,
   ScrollView,
   KeyboardAvoidingView,
   Platform,
   useWindowDimensions,
 } from 'react-native';
+import { Card, AppButton } from '../../components/UI';
 import { useAuth } from '../../context/AuthContext';
 import { useTheme } from '../../theme/ThemeContext';
 
@@ -45,7 +44,10 @@ export default function RegisterScreen({ navigation }) {
 
     setLoading(true);
     try {
-      await register({ name: name.trim(), phone: phone.trim(), email: email.trim(), password });
+      const response = await register({ name: name.trim(), phone: phone.trim(), email: email.trim(), password });
+      if (response?.requiresEmailVerification) {
+        navigation.navigate('VerifyEmail', { email: email.trim() });
+      }
     } catch (err) {
       setError(err?.message || 'Unable to register');
     } finally {
@@ -66,7 +68,7 @@ export default function RegisterScreen({ navigation }) {
         <Text style={[styles.logo, { color: theme.colors.textPrimary, fontSize: isCompact ? 32 : 38 }]}>BizRecord</Text>
         <Text style={[styles.tagline, { color: theme.colors.textSecondary }]}>Create your account to start managing your business</Text>
       </View>
-      <View style={[styles.form, { backgroundColor: theme.colors.card, width: formWidth, borderColor: theme.colors.border }]}> 
+      <Card style={{ width: formWidth }}>
         <Text style={[styles.label, { color: theme.colors.textSecondary }]}>Name</Text>
         <TextInput
           style={[styles.input, { color: theme.colors.textPrimary, borderColor: theme.colors.border }]}
@@ -74,6 +76,8 @@ export default function RegisterScreen({ navigation }) {
           onChangeText={setName}
           placeholder="Your full name"
           placeholderTextColor={theme.colors.textSecondary}
+          accessible
+          accessibilityLabel="Full name"
         />
 
         <Text style={[styles.label, { color: theme.colors.textSecondary }]}>Phone</Text>
@@ -84,6 +88,8 @@ export default function RegisterScreen({ navigation }) {
           placeholder="08012345678"
           placeholderTextColor={theme.colors.textSecondary}
           keyboardType="phone-pad"
+          accessible
+          accessibilityLabel="Phone number"
         />
 
         <Text style={[styles.label, { color: theme.colors.textSecondary }]}>Email</Text>
@@ -95,6 +101,8 @@ export default function RegisterScreen({ navigation }) {
           placeholderTextColor={theme.colors.textSecondary}
           autoCapitalize="none"
           keyboardType="email-address"
+          accessible
+          accessibilityLabel="Email address"
         />
 
         <Text style={[styles.label, { color: theme.colors.textSecondary }]}>Password</Text>
@@ -105,6 +113,8 @@ export default function RegisterScreen({ navigation }) {
           placeholder="••••••"
           placeholderTextColor={theme.colors.textSecondary}
           secureTextEntry
+          accessible
+          accessibilityLabel="Password"
         />
 
         <Text style={[styles.label, { color: theme.colors.textSecondary }]}>Confirm Password</Text>
@@ -115,26 +125,29 @@ export default function RegisterScreen({ navigation }) {
           placeholder="••••••"
           placeholderTextColor={theme.colors.textSecondary}
           secureTextEntry
+          accessible
+          accessibilityLabel="Confirm password"
         />
 
-        {error ? (
-          <Text style={{ color: theme.colors.danger || '#d32f2f', marginBottom: 10 }}>{error}</Text>
-        ) : null}
-
-        <TouchableOpacity
-          style={[styles.button, { backgroundColor: theme.colors.primary, opacity: loading ? 0.7 : 1 }]}
+        <AppButton
+          title={loading ? 'Creating…' : 'Create account'}
           onPress={handleRegister}
-          disabled={loading}
-        >
-          {loading ? <ActivityIndicator color="#fff" /> : <Text style={styles.buttonText}>Create account</Text>}
-        </TouchableOpacity>
-
-        <TouchableOpacity onPress={() => navigation.navigate('Login')}>
-          <Text style={{ color: theme.colors.primary, marginTop: 12, textAlign: 'center' }}>
-            Already have an account? Sign in
-          </Text>
-        </TouchableOpacity>
-      </View>
+          loading={loading}
+          disabled={loading || !name.trim() || !email.trim() || !password || !confirmPassword}
+          style={{ marginTop: 14 }}
+          accessibilityLabel="Create account"
+        />
+        {error ? (
+          <Text style={{ color: theme.colors.danger || '#d32f2f', marginTop: 10 }}>{error}</Text>
+        ) : null}
+        <AppButton
+          title="Already have an account? Sign in"
+          onPress={() => navigation.navigate('Login')}
+          variant="secondary"
+          style={{ marginTop: 12 }}
+          accessibilityLabel="Sign in"
+        />
+      </Card>
       </ScrollView>
     </KeyboardAvoidingView>
   );

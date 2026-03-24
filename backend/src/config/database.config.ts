@@ -4,6 +4,9 @@ import { User } from '../modules/auth/entities/user.entity';
 import { Workspace } from '../modules/workspace/entities/workspace.entity';
 import { InventoryItem } from '../modules/inventory/entities/inventory-item.entity';
 import { Transaction } from '../modules/transactions/entities/transaction.entity';
+import { Subscription } from '../modules/billing/entities/subscription.entity';
+import { Payment } from '../modules/billing/entities/payment.entity';
+import { Customer } from '../modules/customer/customer.entity';
 
 // SSL helpers – evaluated at module load for the CLI DataSource and on each
 // databaseConfig() call for the runtime connection.
@@ -23,7 +26,7 @@ export const databaseConfig = (): TypeOrmModuleOptions => {
   const ssl = buildSslOption();
   const shared = {
     type: 'postgres' as const,
-    entities: [User, Workspace, InventoryItem, Transaction],
+    entities: [User, Workspace, InventoryItem, Transaction, Subscription, Payment, Customer],
     synchronize: process.env.NODE_ENV !== 'production',
     migrations: [__dirname + '/../database/migrations/*{.ts,.js}'],
     migrationsRun: true,
@@ -48,7 +51,7 @@ export const databaseConfig = (): TypeOrmModuleOptions => {
 // DataSource for TypeORM CLI migrations.
 // Environment variables are read once when this module is loaded (standard
 // Node.js/NestJS behaviour – env vars do not change at runtime).
-const entities = [User, Workspace, InventoryItem, Transaction];
+const entities = [User, Workspace, InventoryItem, Transaction, Subscription, Payment, Customer];
 const migrations = [__dirname + '/../database/migrations/*{.ts,.js}'];
 const ssl = buildSslOption();
 

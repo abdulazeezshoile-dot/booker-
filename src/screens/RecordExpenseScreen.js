@@ -13,7 +13,7 @@ import {
 import { useTheme } from '../theme/ThemeContext';
 import { useWorkspace } from '../context/WorkspaceContext';
 import { api } from '../api/client';
-import { Card, Title } from '../components/UI';
+import { Card, Title, SkeletonBlock, EmptyState } from '../components/UI';
 import { MaterialIcons } from '@expo/vector-icons';
 
 const EXPENSE_CATEGORIES = [
@@ -98,6 +98,19 @@ export default function RecordExpenseScreen({ navigation }) {
     }
   };
 
+
+  // Skeleton loader for loading state
+  if (loading) {
+    return (
+      <View style={{ flex: 1, backgroundColor: theme.colors.background, justifyContent: 'center', alignItems: 'center', padding: 24 }}>
+        <SkeletonBlock height={28} width="60%" style={{ marginBottom: 18, borderRadius: 8 }} />
+        <SkeletonBlock height={90} style={{ marginBottom: 18, borderRadius: 16 }} />
+        <SkeletonBlock height={90} style={{ marginBottom: 18, borderRadius: 16 }} />
+        <SkeletonBlock height={90} style={{ marginBottom: 18, borderRadius: 16 }} />
+      </View>
+    );
+  }
+
   return (
     <KeyboardAvoidingView
       behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
@@ -106,11 +119,12 @@ export default function RecordExpenseScreen({ navigation }) {
       <ScrollView
         style={[styles.container, { backgroundColor: theme.colors.background }]}
         contentContainerStyle={{ padding: 16 }}
+        accessibilityLabel="Record expense screen"
       >
         {/* Header */}
         <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 }}>
-          <Title>Record Expense</Title>
-          <TouchableOpacity onPress={() => navigation.goBack()}>
+          <Title accessibilityRole="header">Record Expense</Title>
+          <TouchableOpacity onPress={() => navigation.goBack()} accessibilityLabel="Close record expense screen" activeOpacity={0.7}>
             <MaterialIcons name="close" size={24} color={theme.colors.textPrimary} />
           </TouchableOpacity>
         </View>
@@ -130,6 +144,8 @@ export default function RecordExpenseScreen({ navigation }) {
                   },
                 ]}
                 onPress={() => setCategory(cat.id)}
+                accessibilityLabel={`Select category ${cat.label}`}
+                activeOpacity={0.7}
               >
                 <MaterialIcons
                   name={cat.icon}
@@ -185,6 +201,8 @@ export default function RecordExpenseScreen({ navigation }) {
                   },
                 ]}
                 onPress={() => setPaymentMethod(method)}
+                accessibilityLabel={`Select payment method ${method}`}
+                activeOpacity={0.7}
               >
                 <Text
                   style={{
@@ -243,6 +261,8 @@ export default function RecordExpenseScreen({ navigation }) {
           style={[styles.submitButton, { backgroundColor: theme.colors.warning, opacity: loading ? 0.7 : 1 }]}
           onPress={handleSubmit}
           disabled={loading}
+          accessibilityLabel="Record expense"
+          activeOpacity={0.7}
         >
           <MaterialIcons name="check-circle" size={20} color="#fff" />
           <Text style={{ color: '#fff', fontWeight: '600', marginLeft: 8 }}>

@@ -14,8 +14,10 @@ import { useTheme } from '../theme/ThemeContext';
 import { useWorkspace } from '../context/WorkspaceContext';
 import { api } from '../api/client';
 import { cacheInventory, getCachedInventory } from '../storage/offlineStore';
-import { Card, Title } from '../components/UI';
+import { Card, Title, SkeletonBlock, EmptyState } from '../components/UI';
 import { MaterialIcons } from '@expo/vector-icons';
+import { useCustomerSelect } from '../context/CustomerSelectContext';
+
 
 export default function RecordSaleScreen({ navigation, route }) {
   const themeContext = useTheme();
@@ -33,9 +35,27 @@ export default function RecordSaleScreen({ navigation, route }) {
   const [quantity, setQuantity] = useState('');
 
   // Shared fields
-  const [customer, setCustomer] = useState('');
+  const { selectedCustomer, setSelectedCustomer } = useCustomerSelect();
+  const customerId = selectedCustomer ? selectedCustomer.id : '';
+  const [customers, setCustomers] = useState([]);
+    React.useEffect(() => {
+      const loadCustomers = async () => {
+        if (!currentWorkspaceId) {
+          setCustomers([]);
+          return;
+        }
+        try {
+          const data = await api.get(`/workspaces/${currentWorkspaceId}/customers`);
+          setCustomers(Array.isArray(data) ? data : []);
+        } catch {
+          setCustomers([]);
+        }
+      };
+      loadCustomers();
+    }, [currentWorkspaceId]);
   const [notes, setNotes] = useState('');
   const [loading, setLoading] = useState(false);
+  const [inventoryLoading, setInventoryLoading] = useState(false);
 
   const selectedItem = useMemo(
     () => inventoryItems.find((item) => item.id === selectedItemId) || null,
@@ -49,7 +69,7 @@ export default function RecordSaleScreen({ navigation, route }) {
         setInventoryItems([]);
         return;
       }
-
+      setInventoryLoading(true);
       try {
         const data = await api.get(`/workspaces/${currentWorkspaceId}/inventory`);
         const list = Array.isArray(data) ? data : [];
@@ -58,9 +78,10 @@ export default function RecordSaleScreen({ navigation, route }) {
       } catch {
         const cached = await getCachedInventory(currentWorkspaceId);
         setInventoryItems(Array.isArray(cached) ? cached : []);
+      } finally {
+        setInventoryLoading(false);
       }
     };
-
     loadInventory();
   }, [currentWorkspaceId]);
 
@@ -98,13 +119,14 @@ export default function RecordSaleScreen({ navigation, route }) {
             unitPrice: item.sellingPrice || 0,
             totalAmount: total,
             paymentMethod: 'cash',
-            customerName: customer || 'Walk-in',
+            customerId: customerId || undefined,
             notes: notes || item.name,
           });
         }
+        const customerName = customers.find(c => c.id === customerId)?.name || 'Walk-in';
         Alert.alert(
           'Sale recorded',
-          `${cartItems.length} item(s) — ₦${cartTotal.toLocaleString()}\nCustomer: ${customer || 'Walk-in'}`,
+          `${cartItems.length} item(s) — ₦${cartTotal.toLocaleString()}\nCustomer: ${customerName}`,
           [{ text: 'OK', onPress: () => navigation.goBack() }],
         );
       } else {
@@ -129,12 +151,13 @@ export default function RecordSaleScreen({ navigation, route }) {
           unitPrice,
           totalAmount: total,
           paymentMethod: 'cash',
-          customerName: customer || 'Walk-in',
+          customerId: customerId || undefined,
           notes: notes || selectedItem.name,
         });
+        const customerName = customers.find(c => c.id === customerId)?.name || 'Walk-in';
         Alert.alert(
           'Sale recorded',
-          `${qtyNum} × ${selectedItem.name} = ₦${total.toLocaleString()}\nCustomer: ${customer || 'Walk-in'}`,
+          `${qtyNum} × ${selectedItem.name} = ₦${total.toLocaleString()}\nCustomer: ${customerName}`,
           [{ text: 'OK', onPress: () => navigation.goBack() }],
         );
       }
@@ -153,18 +176,26 @@ export default function RecordSaleScreen({ navigation, route }) {
       <ScrollView
         style={[styles.container, { backgroundColor: theme.colors.background }]}
         contentContainerStyle={{ padding: 16 }}
+        accessibilityLabel="Record Sale screen"
       >
         {/* Header */}
         <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 }}>
-          <Title>Record Sale</Title>
-          <TouchableOpacity onPress={() => navigation.goBack()}>
+          <Title accessibilityRole="header">Record Sale</Title>
+          <TouchableOpacity onPress={() => navigation.goBack()} accessibilityLabel="Close">
             <MaterialIcons name="close" size={24} color={theme.colors.textPrimary} />
           </TouchableOpacity>
         </View>
 
         {/* Item Details Card */}
         {/* Cart Summary (cart mode) or Manual Single-Item Entry */}
-        {isCartMode ? (
+        {loading || inventoryLoading ? (
+          <View style={{ marginBottom: 16 }}>
+            <SkeletonBlock height={22} width="40%" style={{ marginBottom: 14, borderRadius: 8 }} />
+            <SkeletonBlock height={70} style={{ marginBottom: 14, borderRadius: 12 }} />
+            <SkeletonBlock height={70} style={{ marginBottom: 14, borderRadius: 12 }} />
+            <SkeletonBlock height={70} style={{ marginBottom: 14, borderRadius: 12 }} />
+          </View>
+        ) : isCartMode ? (
           <Card style={{ marginBottom: 16 }}>
             <Text style={{ color: theme.colors.textSecondary, fontSize: 12, marginBottom: 12 }}>Items in this sale</Text>
             {cartItems.map((item, index) => (
@@ -200,7 +231,15 @@ export default function RecordSaleScreen({ navigation, route }) {
             <Text style={{ color: theme.colors.textSecondary, fontSize: 12, marginBottom: 8 }}>Select Item *</Text>
             <View style={[styles.itemsWrap, { borderColor: theme.colors.border, backgroundColor: theme.colors.card }]}> 
               {inventoryItems.length === 0 ? (
-                <Text style={{ color: theme.colors.textSecondary, fontSize: 12 }}>No inventory items available</Text>
+                <EmptyState
+                  icon="inventory"
+                  title="No inventory items"
+                  subtitle="Add inventory items to record sales."
+                  style={{ marginVertical: 16 }}
+                  ctaLabel="Add Item"
+                  onCtaPress={() => navigation.navigate('AddItemScreen')}
+                  accessibilityLabel="No inventory items. Add inventory to record sales."
+                />
               ) : (
                 inventoryItems.map((item) => {
                   const selected = selectedItemId === item.id;
@@ -215,6 +254,8 @@ export default function RecordSaleScreen({ navigation, route }) {
                         },
                       ]}
                       onPress={() => setSelectedItemId(item.id)}
+                      accessibilityLabel={`Select item ${item.name}`}
+                      activeOpacity={0.7}
                     >
                       <View style={{ flex: 1 }}>
                         <Text style={{ color: theme.colors.textPrimary, fontWeight: '700' }}>{item.name}</Text>
@@ -246,6 +287,7 @@ export default function RecordSaleScreen({ navigation, route }) {
                   keyboardType="number-pad"
                   value={quantity}
                   onChangeText={setQuantity}
+                  accessibilityLabel="Quantity"
                 />
               </View>
               <View style={{ flex: 1 }}>
@@ -259,6 +301,7 @@ export default function RecordSaleScreen({ navigation, route }) {
                       justifyContent: 'center',
                     },
                   ]}
+                  accessible accessibilityLabel="Unit price"
                 >
                   <Text style={{ color: theme.colors.textPrimary, fontWeight: '600' }}>
                     ₦{unitPrice.toLocaleString()}
@@ -282,21 +325,20 @@ export default function RecordSaleScreen({ navigation, route }) {
 
         {/* Customer & Notes Card */}
         <Card style={{ marginBottom: 16 }}>
-          <Text style={{ color: theme.colors.textSecondary, fontSize: 12, marginBottom: 8 }}>Customer (optional)</Text>
-          <TextInput
-            style={[
-              styles.input,
-              {
-                backgroundColor: theme.colors.card,
-                color: theme.colors.textPrimary,
-                borderColor: theme.colors.border,
-              },
-            ]}
-            placeholder="Customer name"
-            placeholderTextColor={theme.colors.textSecondary}
-            value={customer}
-            onChangeText={setCustomer}
-          />
+          <Text style={{ color: theme.colors.textSecondary, fontSize: 12, marginBottom: 8 }}>Customer</Text>
+          <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 8 }}>
+            <TouchableOpacity
+              style={{ flex: 1, borderWidth: 1, borderColor: theme.colors.border, borderRadius: 8, padding: 10, backgroundColor: theme.colors.card }}
+              onPress={() => navigation.navigate('CustomerListScreen', { selectMode: true })}
+            >
+              <Text style={{ color: customerId ? theme.colors.textPrimary : theme.colors.textSecondary }}>
+                {customerId ? (customers.find(c => c.id === customerId)?.name || 'Select customer') : 'Select customer'}
+              </Text>
+            </TouchableOpacity>
+            <TouchableOpacity onPress={() => navigation.navigate('AddCustomerScreen')} style={{ marginLeft: 8 }}>
+              <MaterialIcons name="person-add" size={24} color={theme.colors.primary} />
+            </TouchableOpacity>
+          </View>
 
           <Text style={{ color: theme.colors.textSecondary, fontSize: 12, marginBottom: 8, marginTop: 12 }}>Notes</Text>
           <TextInput

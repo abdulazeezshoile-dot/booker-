@@ -14,6 +14,7 @@ import { useTheme } from '../../theme/ThemeContext';
 import { useWorkspace } from '../../context/WorkspaceContext';
 import { api } from '../../api/client';
 import { Card, Title, AppButton } from '../../components/UI';
+import UpgradeModal from '../../components/UpgradeModal';
 import { MaterialIcons } from '@expo/vector-icons';
 
 export default function BranchCreateScreen({ navigation }) {
@@ -31,6 +32,8 @@ export default function BranchCreateScreen({ navigation }) {
   const [phone, setPhone] = useState('');
   const [address, setAddress] = useState('');
   const [loading, setLoading] = useState(false);
+  const [showUpgradeModal, setShowUpgradeModal] = useState(false);
+  const [upgradePayload, setUpgradePayload] = useState(null);
 
   const getErrorMessage = (err, fallback) => {
     const raw = err?.message ?? fallback;
@@ -109,6 +112,11 @@ export default function BranchCreateScreen({ navigation }) {
         },
       ]);
     } catch (err) {
+      if (err?.data?.code === 'PLAN_LIMIT_REACHED') {
+        setUpgradePayload(err.data);
+        setShowUpgradeModal(true);
+        return;
+      }
       Alert.alert('Error', getErrorMessage(err, 'Unable to create branch'));
     } finally {
       setLoading(false);
@@ -296,6 +304,20 @@ export default function BranchCreateScreen({ navigation }) {
           onPress={handleCreateBranch}
           loading={loading}
           style={styles.submitButton}
+        />
+
+        <UpgradeModal
+          visible={showUpgradeModal}
+          onClose={() => setShowUpgradeModal(false)}
+          onUpgrade={() => {
+            setShowUpgradeModal(false);
+            navigation.navigate('Subscription');
+          }}
+          title="Branch limit reached"
+          message={upgradePayload?.message || 'Your plan limit has been reached. Upgrade to create more branches.'}
+          plan={upgradePayload?.meta?.plan}
+          limit={upgradePayload?.meta?.limit}
+          current={upgradePayload?.meta?.current}
         />
       </ScrollView>
     </KeyboardAvoidingView>

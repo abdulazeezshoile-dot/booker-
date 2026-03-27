@@ -1,20 +1,20 @@
 import React, { useState } from 'react';
+import { Modal } from 'react-native';
 import {
   View,
   Text,
   TextInput,
-  TouchableOpacity,
   StyleSheet,
-  ActivityIndicator,
   KeyboardAvoidingView,
   Platform,
   useWindowDimensions,
 } from 'react-native';
+import { Card, AppButton } from '../../components/UI';
 import { useAuth } from '../../context/AuthContext';
 import { useTheme } from '../../theme/ThemeContext';
 
 export default function LoginScreen({ navigation }) {
-  const { login } = useAuth();
+  const { login, setBiometricOptIn, isBiometricAvailable, getBiometricOptIn } = useAuth();
   const themeContext = useTheme();
   const theme = themeContext.theme;
   const { width } = useWindowDimensions();
@@ -22,6 +22,7 @@ export default function LoginScreen({ navigation }) {
   const [password, setPassword] = useState('');
   const [error, setError] = useState(null);
   const [loading, setLoading] = useState(false);
+  const [showBiometricModal, setShowBiometricModal] = useState(false);
   const isCompact = width < 380;
   const formWidth = Math.min(width - (isCompact ? 24 : 36), 460);
 
@@ -30,65 +31,120 @@ export default function LoginScreen({ navigation }) {
     setLoading(true);
     try {
       await login(email.trim(), password);
+      // After successful login, prompt for biometric opt-in (Android only)
+      if (
+        Platform.OS === 'android' &&
+        (await isBiometricAvailable()) &&
+        !(await getBiometricOptIn())
+      ) {
+        setShowBiometricModal(true);
+      }
     } catch (err) {
-      setError(err?.message || 'Unable to sign in');
+      const message = err?.message || 'Unable to sign in';
+      setError(message);
+      if (/email not verified/i.test(message)) {
+        navigation.navigate('VerifyEmail', { email: email.trim() });
+      }
     } finally {
       setLoading(false);
     }
   };
 
   return (
-    <KeyboardAvoidingView
-      style={[styles.container, { backgroundColor: theme.colors.background }]}
-      behavior={Platform.OS === 'ios' ? 'padding' : undefined}
-    >
-      <View style={styles.hero}>
-        <Text style={[styles.logo, { color: theme.colors.textPrimary, fontSize: isCompact ? 32 : 38 }]}>BizRecord</Text>
-        <Text style={[styles.tagline, { color: theme.colors.textSecondary }]}>Track stock, sales, debt and expenses in one place</Text>
-      </View>
-      <View style={[styles.form, { backgroundColor: theme.colors.card, width: formWidth, borderColor: theme.colors.border }]}> 
-        <Text style={[styles.label, { color: theme.colors.textSecondary }]}>Email</Text>
-        <TextInput
-          style={[styles.input, { color: theme.colors.textPrimary, borderColor: theme.colors.border }]}
-          value={email}
-          onChangeText={setEmail}
-          placeholder="you@store.com"
-          placeholderTextColor={theme.colors.textSecondary}
-          autoCapitalize="none"
-          keyboardType="email-address"
-        />
-        <Text style={[styles.label, { color: theme.colors.textSecondary }]}>Password</Text>
-        <TextInput
-          style={[styles.input, { color: theme.colors.textPrimary, borderColor: theme.colors.border }]}
-          value={password}
-          onChangeText={setPassword}
-          placeholder="••••••"
-          placeholderTextColor={theme.colors.textSecondary}
-          secureTextEntry
-        />
-        <TouchableOpacity onPress={() => navigation.navigate('Forgot')}>
-          <Text style={{ color: theme.colors.primary, marginBottom: 12 }}>Forgot password?</Text>
-        </TouchableOpacity>
-
-        <TouchableOpacity onPress={() => navigation.navigate('Register')}>
-          <Text style={{ color: theme.colors.primary, marginBottom: 12 }}>Create an account</Text>
-        </TouchableOpacity>
-
-        {error ? <Text style={{ color: theme.colors.danger || '#d32f2f', marginBottom: 10 }}>{error}</Text> : null}
-
-        <TouchableOpacity
-          style={[styles.button, { backgroundColor: theme.colors.primary, opacity: loading ? 0.7 : 1 }]}
-          onPress={handleLogin}
-          disabled={loading}
-        >
-          {loading ? (
-            <ActivityIndicator color="#fff" />
-          ) : (
-            <Text style={styles.buttonText}>Sign in</Text>
-          )}
-        </TouchableOpacity>
-      </View>
-    </KeyboardAvoidingView>
+    <>
+      <KeyboardAvoidingView
+        style={[styles.container, { backgroundColor: theme.colors.background }]}
+        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+      >
+        <View style={styles.hero}>
+          <Text style={[styles.logo, { color: theme.colors.textPrimary, fontSize: isCompact ? 32 : 38 }]}>BizRecord</Text>
+          <Text style={[styles.tagline, { color: theme.colors.textSecondary }]}>Track stock, sales, debt and expenses in one place</Text>
+        </View>
+        <Card style={{ width: formWidth }}>
+          <Text style={[styles.label, { color: theme.colors.textSecondary }]}>Email</Text>
+          <TextInput
+            style={[styles.input, { color: theme.colors.textPrimary, borderColor: theme.colors.border }]}
+            value={email}
+            onChangeText={setEmail}
+            placeholder="you@store.com"
+            placeholderTextColor={theme.colors.textSecondary}
+            autoCapitalize="none"
+            keyboardType="email-address"
+            accessible
+            accessibilityLabel="Email address"
+          />
+          <Text style={[styles.label, { color: theme.colors.textSecondary }]}>Password</Text>
+          <TextInput
+            style={[styles.input, { color: theme.colors.textPrimary, borderColor: theme.colors.border }]}
+            value={password}
+            onChangeText={setPassword}
+            placeholder="••••••"
+            placeholderTextColor={theme.colors.textSecondary}
+            secureTextEntry
+            accessible
+            accessibilityLabel="Password"
+          />
+          <AppButton
+            title="Sign in"
+            onPress={handleLogin}
+            loading={loading}
+            disabled={loading || !email.trim() || !password}
+            style={{ marginTop: 14 }}
+            accessibilityLabel="Sign in"
+          />
+          {error ? <Text style={{ color: theme.colors.danger || '#d32f2f', marginTop: 10 }}>{error}</Text> : null}
+          <AppButton
+            title="Forgot password?"
+            onPress={() => navigation.navigate('Forgot')}
+            variant="secondary"
+            style={{ marginTop: 10 }}
+            accessibilityLabel="Forgot password"
+          />
+          <AppButton
+            title="Create an account"
+            onPress={() => navigation.navigate('Register')}
+            variant="secondary"
+            style={{ marginTop: 10 }}
+            accessibilityLabel="Create an account"
+          />
+        </Card>
+      </KeyboardAvoidingView>
+      {/* Biometric opt-in modal */}
+      <Modal
+        visible={showBiometricModal}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setShowBiometricModal(false)}
+      >
+        <View style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.4)', alignItems: 'center', justifyContent: 'center' }}>
+          <Card style={{ padding: 24, borderRadius: 16, width: 320, alignItems: 'center' }}>
+            <Text style={{ fontWeight: '700', fontSize: 18, marginBottom: 10, color: theme.colors.textPrimary }}>Enable Fingerprint Unlock?</Text>
+            <Text style={{ color: theme.colors.textSecondary, marginBottom: 18, textAlign: 'center' }}>
+              For faster offline access, you can unlock the app with your fingerprint next time.
+            </Text>
+            <View style={{ flexDirection: 'row', gap: 16 }}>
+              <AppButton
+                title="Enable"
+                onPress={async () => {
+                  await setBiometricOptIn(true);
+                  setShowBiometricModal(false);
+                }}
+                style={{ marginRight: 8, minWidth: 90 }}
+              />
+              <AppButton
+                title="Not now"
+                onPress={async () => {
+                  await setBiometricOptIn(false);
+                  setShowBiometricModal(false);
+                }}
+                variant="secondary"
+                style={{ minWidth: 90 }}
+              />
+            </View>
+          </Card>
+        </View>
+      </Modal>
+    </>
   );
 }
 

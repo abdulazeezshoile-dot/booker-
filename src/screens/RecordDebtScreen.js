@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   View,
   Text,
@@ -13,7 +13,7 @@ import {
 import { useTheme } from '../theme/ThemeContext';
 import { useWorkspace } from '../context/WorkspaceContext';
 import { api } from '../api/client';
-import { Card, Title } from '../components/UI';
+import { Card, Title, SkeletonBlock, EmptyState } from '../components/UI';
 import { MaterialIcons } from '@expo/vector-icons';
 
 export default function RecordDebtScreen({ navigation }) {
@@ -21,209 +21,163 @@ export default function RecordDebtScreen({ navigation }) {
   const theme = themeContext.theme;
   const { currentWorkspaceId, queueAction } = useWorkspace();
 
-  const [customer, setCustomer] = useState('');
-  const [phone, setPhone] = useState('');
-  const [amount, setAmount] = useState('');
-  const [dueInDays, setDueInDays] = useState('7');
-  const [notes, setNotes] = useState('');
-  const [loading, setLoading] = useState(false);
-
-  const handleSubmit = async () => {
-    if (!customer.trim() || !amount) {
-      Alert.alert('Validation Error', 'Please enter a customer name and amount');
-      return;
-    }
-
-    if (!currentWorkspaceId) {
-      Alert.alert('Workspace required', 'Please select a workspace before recording debt');
-      return;
-    }
-
-    const parsedAmount = parseFloat(amount);
-    if (isNaN(parsedAmount) || parsedAmount <= 0) {
-      Alert.alert('Validation Error', 'Please enter a valid amount');
-      return;
-    }
-
-    const dueDaysNum = parseInt(dueInDays, 10) || 0;
-    const dueDate = new Date();
-    dueDate.setDate(dueDate.getDate() + dueDaysNum);
-
-    const payload = {
-      type: 'debt',
-      quantity: 1,
-      unitPrice: parsedAmount,
-      totalAmount: parsedAmount,
-      paymentMethod: 'credit',
-      phone: phone.trim(),
-      customerName: customer.trim(),
-      dueDate: dueDate.toISOString(),
-      notes: notes || 'Debt record',
-    };
-
-    setLoading(true);
-
-    try {
-      await api.post(`/workspaces/${currentWorkspaceId}/transactions`, payload);
-
-      Alert.alert('Debt recorded', `₦${parsedAmount.toFixed(2)} recorded for ${customer.trim()}`, [
-        { text: 'OK', onPress: () => navigation.goBack() },
-      ]);
-    } catch (err) {
-      if (queueAction) {
-        await queueAction({
-          method: 'post',
-          path: `/workspaces/${currentWorkspaceId}/transactions`,
-          body: payload,
-        });
-
-        Alert.alert('Offline', 'Debt queued and will sync once online.', [
-          { text: 'OK', onPress: () => navigation.goBack() },
-        ]);
-      } else {
-        Alert.alert('Error', err?.message || 'Unable to record debt');
-      }
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  return (
-    <KeyboardAvoidingView
-      behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-      style={{ flex: 1 }}
-    >
-      <ScrollView
-        style={[styles.container, { backgroundColor: theme.colors.background }]}
-        contentContainerStyle={{ padding: 16 }}
-      >
-        <View
-          style={{
-            flexDirection: 'row',
-            justifyContent: 'space-between',
-            alignItems: 'center',
-            marginBottom: 20,
-          }}
-        >
-          <Title>Record Debt</Title>
-          <TouchableOpacity onPress={() => navigation.goBack()}>
-            <MaterialIcons name="close" size={24} color={theme.colors.textPrimary} />
-          </TouchableOpacity>
+  const [customerId, setCustomerId] = useState('');
+  const [customers, setCustomers] = useState([]);
+    if (loading) {
+      return (
+        <View style={{ flex: 1, backgroundColor: theme.colors.background, justifyContent: 'center', alignItems: 'center', padding: 24 }}>
+          <SkeletonBlock height={28} width="60%" style={{ marginBottom: 18, borderRadius: 8 }} />
+          <SkeletonBlock height={90} style={{ marginBottom: 18, borderRadius: 16 }} />
+          <SkeletonBlock height={90} style={{ marginBottom: 18, borderRadius: 16 }} />
+          <SkeletonBlock height={90} style={{ marginBottom: 18, borderRadius: 16 }} />
         </View>
+      );
+    }
 
-        <Card style={{ marginBottom: 16 }}>
-          <Text style={{ color: theme.colors.textSecondary, fontSize: 12, marginBottom: 8 }}>
-            Customer / Debtor *
-          </Text>
-          <TextInput
-            style={[
-              styles.input,
-              {
-                backgroundColor: theme.colors.card,
-                color: theme.colors.textPrimary,
-                borderColor: theme.colors.border,
-              },
-            ]}
-            placeholder="Customer name"
-            placeholderTextColor={theme.colors.textSecondary}
-            value={customer}
-            onChangeText={setCustomer}
-          />
-
-          <Text style={{ color: theme.colors.textSecondary, fontSize: 12, marginBottom: 8, marginTop: 12 }}>
-            Phone (optional)
-          </Text>
-          <TextInput
-            style={[
-              styles.input,
-              {
-                backgroundColor: theme.colors.card,
-                color: theme.colors.textPrimary,
-                borderColor: theme.colors.border,
-              },
-            ]}
-            placeholder="+2348012345678"
-            placeholderTextColor={theme.colors.textSecondary}
-            keyboardType="phone-pad"
-            value={phone}
-            onChangeText={setPhone}
-          />
-
-          <Text style={{ color: theme.colors.textSecondary, fontSize: 12, marginBottom: 8, marginTop: 12 }}>
-            Amount (₦) *
-          </Text>
-          <TextInput
-            style={[
-              styles.input,
-              {
-                backgroundColor: theme.colors.card,
-                color: theme.colors.textPrimary,
-                borderColor: theme.colors.border,
-              },
-            ]}
-            placeholder="0.00"
-            placeholderTextColor={theme.colors.textSecondary}
-            keyboardType="decimal-pad"
-            value={amount}
-            onChangeText={setAmount}
-          />
-
-          <Text style={{ color: theme.colors.textSecondary, fontSize: 12, marginBottom: 8, marginTop: 12 }}>
-            Due in (days)
-          </Text>
-          <TextInput
-            style={[
-              styles.input,
-              {
-                backgroundColor: theme.colors.card,
-                color: theme.colors.textPrimary,
-                borderColor: theme.colors.border,
-              },
-            ]}
-            placeholder="7"
-            placeholderTextColor={theme.colors.textSecondary}
-            keyboardType="number-pad"
-            value={dueInDays}
-            onChangeText={setDueInDays}
-          />
-
-          <Text style={{ color: theme.colors.textSecondary, fontSize: 12, marginBottom: 8, marginTop: 12 }}>
-            Notes
-          </Text>
-          <TextInput
-            style={[
-              styles.input,
-              styles.textArea,
-              {
-                backgroundColor: theme.colors.card,
-                color: theme.colors.textPrimary,
-                borderColor: theme.colors.border,
-              },
-            ]}
-            placeholder="Any extra info"
-            placeholderTextColor={theme.colors.textSecondary}
-            value={notes}
-            onChangeText={setNotes}
-            multiline
-            numberOfLines={3}
-          />
-        </Card>
-
-        <TouchableOpacity
-          style={[
-            styles.submitButton,
-            { backgroundColor: theme.colors.primary, opacity: loading ? 0.7 : 1 },
-          ]}
-          onPress={handleSubmit}
-          disabled={loading}
+    return (
+      <KeyboardAvoidingView
+        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+        style={{ flex: 1 }}
+      >
+        <ScrollView
+          style={[styles.container, { backgroundColor: theme.colors.background }]}
+          contentContainerStyle={{ padding: 16 }}
+          accessibilityLabel="Record debt screen"
         >
-          <MaterialIcons name="check-circle" size={20} color="#fff" />
-          <Text style={{ color: '#fff', fontWeight: '600', marginLeft: 8 }}>
-            {loading ? 'Recording…' : 'Save Debt'}
-          </Text>
-        </TouchableOpacity>
-      </ScrollView>
-    </KeyboardAvoidingView>
+          <View
+            style={{
+              flexDirection: 'row',
+              justifyContent: 'space-between',
+              alignItems: 'center',
+              marginBottom: 20,
+            }}
+          >
+            <Title accessibilityRole="header">Record Debt</Title>
+            <TouchableOpacity onPress={() => navigation.goBack()} accessibilityLabel="Close record debt screen" activeOpacity={0.7}>
+              <MaterialIcons name="close" size={24} color={theme.colors.textPrimary} />
+            </TouchableOpacity>
+          </View>
+
+          <Card style={{ marginBottom: 16 }}>
+            <Text style={{ color: theme.colors.textSecondary, fontSize: 12, marginBottom: 8 }}>
+              Customer / Debtor *
+            </Text>
+            <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 8 }}>
+              <TouchableOpacity
+                style={{ flex: 1, borderWidth: 1, borderColor: theme.colors.border, borderRadius: 8, padding: 10, backgroundColor: theme.colors.card }}
+                onPress={() => navigation.navigate('CustomerListScreen', { onSelect: (customer) => { setCustomerId(customer.id); navigation.goBack(); } })}
+                accessibilityLabel="Select customer"
+                activeOpacity={0.7}
+              >
+                <Text style={{ color: customerId ? theme.colors.textPrimary : theme.colors.textSecondary }}>
+                  {customerId ? (customers.find(c => c.id === customerId)?.name || 'Select customer') : 'Select customer'}
+                </Text>
+              </TouchableOpacity>
+              <TouchableOpacity onPress={() => navigation.navigate('AddCustomerScreen')} style={{ marginLeft: 8 }} accessibilityLabel="Add customer" activeOpacity={0.7}>
+                <MaterialIcons name="person-add" size={24} color={theme.colors.primary} />
+              </TouchableOpacity>
+            </View>
+
+            <Text style={{ color: theme.colors.textSecondary, fontSize: 12, marginBottom: 8, marginTop: 12 }}>
+              Phone (optional)
+            </Text>
+            <TextInput
+              style={[
+                styles.input,
+                {
+                  backgroundColor: theme.colors.card,
+                  color: theme.colors.textPrimary,
+                  borderColor: theme.colors.border,
+                },
+              ]}
+              placeholder="+2348012345678"
+              placeholderTextColor={theme.colors.textSecondary}
+              keyboardType="phone-pad"
+              value={phone}
+              onChangeText={setPhone}
+              accessibilityLabel="Phone number"
+            />
+
+            <Text style={{ color: theme.colors.textSecondary, fontSize: 12, marginBottom: 8, marginTop: 12 }}>
+              Amount (₦) *
+            </Text>
+            <TextInput
+              style={[
+                styles.input,
+                {
+                  backgroundColor: theme.colors.card,
+                  color: theme.colors.textPrimary,
+                  borderColor: theme.colors.border,
+                },
+              ]}
+              placeholder="0.00"
+              placeholderTextColor={theme.colors.textSecondary}
+              keyboardType="decimal-pad"
+              value={amount}
+              onChangeText={setAmount}
+              accessibilityLabel="Amount"
+            />
+
+            <Text style={{ color: theme.colors.textSecondary, fontSize: 12, marginBottom: 8, marginTop: 12 }}>
+              Due in (days)
+            </Text>
+            <TextInput
+              style={[
+                styles.input,
+                {
+                  backgroundColor: theme.colors.card,
+                  color: theme.colors.textPrimary,
+                  borderColor: theme.colors.border,
+                },
+              ]}
+              placeholder="7"
+              placeholderTextColor={theme.colors.textSecondary}
+              keyboardType="number-pad"
+              value={dueInDays}
+              onChangeText={setDueInDays}
+              accessibilityLabel="Due in days"
+            />
+
+            <Text style={{ color: theme.colors.textSecondary, fontSize: 12, marginBottom: 8, marginTop: 12 }}>
+              Notes
+            </Text>
+            <TextInput
+              style={[
+                styles.input,
+                styles.textArea,
+                {
+                  backgroundColor: theme.colors.card,
+                  color: theme.colors.textPrimary,
+                  borderColor: theme.colors.border,
+                },
+              ]}
+              placeholder="Any extra info"
+              placeholderTextColor={theme.colors.textSecondary}
+              value={notes}
+              onChangeText={setNotes}
+              multiline
+              numberOfLines={3}
+              accessibilityLabel="Notes"
+            />
+          </Card>
+
+          <TouchableOpacity
+            style={[
+              styles.submitButton,
+              { backgroundColor: theme.colors.primary, opacity: loading ? 0.7 : 1 },
+            ]}
+            onPress={handleSubmit}
+            disabled={loading}
+            accessibilityLabel="Save debt"
+            activeOpacity={0.7}
+          >
+            <MaterialIcons name="check-circle" size={20} color="#fff" />
+            <Text style={{ color: '#fff', fontWeight: '600', marginLeft: 8 }}>
+              {loading ? 'Recording…' : 'Save Debt'}
+            </Text>
+          </TouchableOpacity>
+        </ScrollView>
+      </KeyboardAvoidingView>
   );
 }
 

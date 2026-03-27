@@ -210,71 +210,83 @@ export default function ReportsScreen({ navigation }) {
       </View>
 
       {loading ? (
-        <View style={{ width: contentWidth, marginTop: 12 }}>
-          <SkeletonBlock height={20} width="35%" />
-          <SkeletonBlock height={88} />
-          <SkeletonBlock height={88} />
-          <SkeletonBlock height={88} />
+        <View style={{ width: contentWidth, marginTop: 24 }}>
+          <SkeletonBlock height={28} width="40%" style={{ marginBottom: 18, borderRadius: 8 }} />
+          <SkeletonBlock height={100} style={{ marginBottom: 18, borderRadius: 16 }} />
+          <SkeletonBlock height={100} style={{ marginBottom: 18, borderRadius: 16 }} />
+          <SkeletonBlock height={100} style={{ marginBottom: 18, borderRadius: 16 }} />
         </View>
       ) : (
         analytics.totalTransactions > 0 ? (
         <>
-          <Card style={{ marginVertical: 8, width: contentWidth }}>
-            <Text style={{ color: theme.colors.textPrimary, fontWeight: '700' }}>Income This Month</Text>
-            <Text style={{ color: theme.colors.success, fontSize: 22, fontWeight: '700', marginTop: 4 }}>
+          <Card style={{ marginVertical: 14, width: contentWidth, elevation: 2 }}>
+            <Text style={{ color: theme.colors.textPrimary, fontWeight: '700', fontSize: 18 }}>Income This Month</Text>
+            <Text style={{ color: theme.colors.success, fontSize: 26, fontWeight: '700', marginTop: 8 }}>
               {formatCurrency(analytics.thisMonthIncome)}
             </Text>
-            <Subtle style={{ marginTop: 6 }}>Income this year: {formatCurrency(analytics.thisYearIncome)}</Subtle>
+            <Subtle style={{ marginTop: 10 }}>Income this year: {formatCurrency(analytics.thisYearIncome)}</Subtle>
           </Card>
 
-          <Card style={{ marginVertical: 8, width: contentWidth }}>
-            <Text style={{ color: theme.colors.textPrimary, fontWeight: '700' }}>Expenses</Text>
-            <Text style={{ color: theme.colors.warning, fontSize: 22, fontWeight: '700', marginTop: 4 }}>
+          <Card style={{ marginVertical: 14, width: contentWidth, elevation: 2 }}>
+            <Text style={{ color: theme.colors.textPrimary, fontWeight: '700', fontSize: 18 }}>Expenses</Text>
+            <Text style={{ color: theme.colors.warning, fontSize: 26, fontWeight: '700', marginTop: 8 }}>
               {formatCurrency(analytics.thisMonthExpenses)}
             </Text>
-            <Subtle style={{ marginTop: 6 }}>Expenses this year: {formatCurrency(analytics.thisYearExpenses)}</Subtle>
+            <Subtle style={{ marginTop: 10 }}>Expenses this year: {formatCurrency(analytics.thisYearExpenses)}</Subtle>
           </Card>
 
-          <Card style={{ marginVertical: 8, width: contentWidth }}>
-            <Text style={{ color: theme.colors.textPrimary, fontWeight: '700' }}>Year Net Profit</Text>
-            <Text style={{ color: theme.colors.primary, fontSize: 22, fontWeight: '700', marginTop: 4 }}>
+          <Card style={{ marginVertical: 14, width: contentWidth, elevation: 2 }}>
+            <Text style={{ color: theme.colors.textPrimary, fontWeight: '700', fontSize: 18 }}>Year Net Profit</Text>
+            <Text style={{ color: theme.colors.primary, fontSize: 26, fontWeight: '700', marginTop: 8 }}>
               {formatCurrency(analytics.netThisYear)}
             </Text>
-            <Subtle style={{ marginTop: 6 }}>Transactions: {analytics.totalTransactions}</Subtle>
+            <Subtle style={{ marginTop: 10 }}>Transactions: {analytics.totalTransactions}</Subtle>
           </Card>
 
-          <Card style={{ marginVertical: 8, width: contentWidth }}>
-            <Text style={{ color: theme.colors.textPrimary, fontWeight: '700', marginBottom: 8 }}>Monthly Income vs Expense (last 6 months)</Text>
+          <Card style={{ marginVertical: 14, width: contentWidth, elevation: 2 }}>
+            <Text style={{ color: theme.colors.textPrimary, fontWeight: '700', fontSize: 18, marginBottom: 10 }}>Monthly Income vs Expense (last 6 months)</Text>
             {analytics.recentMonths.map((month) => {
               const incomeWidth = `${Math.max(4, (month.income / analytics.maxBarValue) * 100)}%`;
               const expenseWidth = `${Math.max(4, (month.expense / analytics.maxBarValue) * 100)}%`;
               return (
-                <View key={month.key} style={{ marginBottom: 10 }}>
-                  <Text style={{ color: theme.colors.textSecondary, fontSize: 12 }}>{month.label} {month.year}</Text>
-                  <View style={[styles.track, { backgroundColor: theme.colors.border }]}>
+                <View key={month.key} style={{ marginBottom: 16 }}>
+                  <Text style={{ color: theme.colors.textSecondary, fontSize: 13, fontWeight: '600' }}>{month.label} {month.year}</Text>
+                  <View style={[styles.track, { backgroundColor: theme.colors.border }]}
+                    accessible accessibilityLabel={`Income bar for ${month.label} ${month.year}`}
+                  >
                     <View style={[styles.incomeBar, { width: incomeWidth, backgroundColor: theme.colors.success }]} />
                   </View>
-                  <View style={[styles.track, { backgroundColor: theme.colors.border, marginTop: 4 }]}>
+                  <View style={[styles.track, { backgroundColor: theme.colors.border, marginTop: 6 }]}
+                    accessible accessibilityLabel={`Expense bar for ${month.label} ${month.year}`}
+                  >
                     <View style={[styles.expenseBar, { width: expenseWidth, backgroundColor: theme.colors.warning }]} />
                   </View>
                 </View>
               );
             })}
-            <Subtle>Green: income, Amber: expenses</Subtle>
+            <Subtle style={{ marginTop: 8 }}>Green: income, Amber: expenses</Subtle>
           </Card>
 
-          <Card style={{ marginVertical: 8, width: contentWidth }}>
-            <Text style={{ color: theme.colors.textPrimary, fontWeight: '700' }}>Extra Insights</Text>
-            <Subtle style={{ marginTop: 6 }}>Average sale value (year): {formatCurrency(analytics.avgSaleValue)}</Subtle>
-            <Subtle style={{ marginTop: 4 }}>Expense ratio (year): {(analytics.expenseToIncomeRatio * 100).toFixed(1)}%</Subtle>
-            <Subtle style={{ marginTop: 4 }}>Debt exposure: {formatCurrency(analytics.debtExposure)}</Subtle>
-            <Subtle style={{ marginTop: 4 }}>
+          <Card style={{ marginVertical: 14, width: contentWidth, elevation: 2 }}>
+            <Text style={{ color: theme.colors.textPrimary, fontWeight: '700', fontSize: 18 }}>Extra Insights</Text>
+            <Subtle style={{ marginTop: 10 }}>Average sale value (year): {formatCurrency(analytics.avgSaleValue)}</Subtle>
+            <Subtle style={{ marginTop: 8 }}>Expense ratio (year): {(analytics.expenseToIncomeRatio * 100).toFixed(1)}%</Subtle>
+            <Subtle style={{ marginTop: 8 }}>Debt exposure: {formatCurrency(analytics.debtExposure)}</Subtle>
+            <Subtle style={{ marginTop: 8 }}>
               Top income month: {analytics.topIncomeMonth ? `${analytics.topIncomeMonth.label} ${analytics.topIncomeMonth.year} (${formatCurrency(analytics.topIncomeMonth.income)})` : 'N/A'}
             </Subtle>
           </Card>
         </>
         ) : (
-          <EmptyState icon="analytics" title="No analytics data" subtitle="Record transactions to unlock monthly and yearly insights" style={{ width: contentWidth }} />
+          <EmptyState
+            icon="analytics"
+            title="No analytics data"
+            subtitle="Record transactions to unlock monthly and yearly insights"
+            style={{ width: contentWidth, marginTop: 32 }}
+            ctaLabel="Record a transaction"
+            onCtaPress={() => navigation?.navigate && navigation.navigate('RecordSaleScreen')}
+            accessibilityLabel="No analytics data. Record a transaction to unlock insights."
+          />
         )
       )}
     </View>

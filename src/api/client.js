@@ -1,31 +1,26 @@
 import { Platform } from 'react-native';
-import Constants from 'expo-constants';
 
-// Base API URL configuration
-// 1) Preferred: set in Expo/app config (app.json/app.config.js) via `extra.apiUrl` or via EAS secrets.
-// 2) Fallback: use `process.env.EXPO_PUBLIC_API_URL` (Expo managed env) or `process.env.API_URL`.
-// 3) Fallback: local emulator defaults for fast dev.
-const getConfiguredApiUrl = () => {
-  const expoUrl = Constants.expoConfig?.extra?.apiUrl;
-  if (expoUrl) return expoUrl;
-  if (typeof process !== 'undefined' && process.env?.EXPO_PUBLIC_API_URL) return process.env.EXPO_PUBLIC_API_URL;
-  if (typeof process !== 'undefined' && process.env?.API_URL) return process.env.API_URL;
-  return null;
+// Multi-environment configuration
+const ENV = process.env.APP_ENV || 'development';
+
+const URLS = {
+  development: process.env.EXPO_PUBLIC_API_URL, // from EAS env
+  staging: process.env.EXPO_PUBLIC_API_URL_STAGING, // optional, add if needed
+  production: process.env.EXPO_PUBLIC_API_URL_PRODUCTION || 'https://your-production-api.com',
 };
 
 const getBaseUrl = () => {
-  const configured = getConfiguredApiUrl();
-  if (configured) return configured.replace(/\/$/, '');
+  const url = URLS[ENV];
 
-  // Defaults for local development
-  if (Platform.OS === 'android') {
-    return 'http://10.0.2.2:3000';
+  if (!url) {
+    console.warn(`[API] ${ENV} API URL is not set! Falling back to local defaults.`);
+    return Platform.OS === 'android' ? 'http://10.0.2.2:3000' : 'http://localhost:3000';
   }
-  return 'http://localhost:3000';
+
+  return url.replace(/\/$/, '');
 };
 
 let authToken = null;
-
 export const setAuthToken = (token) => {
   authToken = token;
 };

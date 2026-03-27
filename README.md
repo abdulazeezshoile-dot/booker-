@@ -86,3 +86,4 @@ Set `DB_SSL=true` when your database server requires SSL/TLS (common with manage
 
 MIT
 
+# and also add dashabord and alert maybe with sentry yeah let use sentry or other alert you suggest but add the todo also and also add the build artifcat versioning and CI/CD pipelines to the todo also please and these monitoring and hardenning logging to digital oceans space and also 500 server alert also add all these to the todo that what we have left for noe so update the todo with them please  and also app store compliance also

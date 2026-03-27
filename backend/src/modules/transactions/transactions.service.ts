@@ -5,6 +5,9 @@ import { Transaction } from './entities/transaction.entity';
 import { Workspace } from '../workspace/entities/workspace.entity';
 import { User } from '../auth/entities/user.entity';
 import { InventoryItem } from '../inventory/entities/inventory-item.entity';
+
+
+import { ReceiptService } from './receipt.service';
 import { CreateTransactionDto } from './dto/create-transaction.dto';
 
 @Injectable()
@@ -18,6 +21,7 @@ export class TransactionsService {
     private usersRepository: Repository<User>,
     @InjectRepository(InventoryItem)
     private itemsRepository: Repository<InventoryItem>,
+    private receiptService: ReceiptService,
   ) {}
 
   async createTransaction(
@@ -78,7 +82,7 @@ export class TransactionsService {
       await this.itemsRepository.save(item);
     }
 
-    const transaction = this.transactionsRepository.create({
+    let transaction: Transaction = this.transactionsRepository.create({
       type: createTransactionDto.type,
       referenceNumber: createTransactionDto.referenceNumber,
       item: item || undefined,
@@ -96,7 +100,20 @@ export class TransactionsService {
       createdBy: user,
     });
 
-    return await this.transactionsRepository.save(transaction);
+    transaction = await this.transactionsRepository.save(transaction);
+
+    // Generate and upload receipt for sales
+    if (transaction && transaction.type === 'sale') {
+      try {
+        const receiptUrl = await this.receiptService.generateAndUploadReceipt(transaction);
+        transaction.receiptUrl = receiptUrl;
+        await this.transactionsRepository.save(transaction);
+      } catch (err) {
+        // Optionally log error, but don't block transaction creation
+        // console.error('Failed to generate/upload receipt:', err);
+      }
+    }
+    return transaction;
   }
 
   async getTransactions(

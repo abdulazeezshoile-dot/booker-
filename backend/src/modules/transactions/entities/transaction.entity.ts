@@ -63,6 +63,9 @@ export class Transaction {
   @Column({ nullable: true })
   notes: string;
 
+  @Column({ nullable: true })
+  receiptUrl: string;
+
   @ManyToOne(() => Workspace, (workspace) => workspace.transactions, {
     onDelete: 'CASCADE',
   })

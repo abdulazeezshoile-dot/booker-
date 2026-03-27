@@ -9,6 +9,7 @@ import {
   KeyboardAvoidingView,
   Platform,
   useWindowDimensions,
+  useEffect,
 } from 'react-native';
 import { useAuth } from '../../context/AuthContext';
 import { useTheme } from '../../theme/ThemeContext';
@@ -21,6 +22,7 @@ export default function ReAuthScreen({ navigation }) {
   const [password, setPassword] = useState('');
   const [error, setError] = useState(null);
   const [loading, setLoading] = useState(false);
+  const { biometricUnlock, isBiometricAvailable, getBiometricOptIn } = useAuth();
   const isCompact = width < 380;
   const formWidth = Math.min(width - (isCompact ? 24 : 36), 460);
 
@@ -41,6 +43,7 @@ export default function ReAuthScreen({ navigation }) {
       setLoading(false);
     }
   };
+  const [showBiometric, setShowBiometric] = useState(false);
 
   return (
     <KeyboardAvoidingView
@@ -68,7 +71,7 @@ export default function ReAuthScreen({ navigation }) {
           style={[styles.input, { color: theme.colors.textPrimary, borderColor: theme.colors.border }]}
           value={password}
           onChangeText={setPassword}
-          placeholder="Enter your password"
+          placeholder="Enter your password (works offline if recent)"
           placeholderTextColor={theme.colors.textSecondary}
           secureTextEntry
           autoFocus
@@ -76,9 +79,27 @@ export default function ReAuthScreen({ navigation }) {
           returnKeyType="go"
         />
 
+        {showBiometric ? (
+          <>
+            <Text style={[styles.label, { color: theme.colors.textSecondary, marginBottom: 16 }]}>Unlock with fingerprint</Text>
+            <TouchableOpacity
+              style={[styles.button, { backgroundColor: theme.colors.primary, marginBottom: 18, opacity: loading ? 0.7 : 1 }]}
+              onPress={handleBiometric}
+              disabled={loading}
+            >
+              {loading ? (
+                <ActivityIndicator color="#fff" />
+              ) : (
+                <Text style={styles.buttonText}>Unlock with Fingerprint</Text>
+              )}
+            </TouchableOpacity>
+            <Text style={{ color: theme.colors.textSecondary, marginBottom: 10 }}>or use password</Text>
+          </>
+        ) : null}
+
         {error ? (
           <Text style={{ color: theme.colors.danger || '#d32f2f', marginBottom: 10, fontSize: 13 }}>
-            {error}
+            {error.includes('offline') ? 'Incorrect password (offline mode).' : error.includes('expired') ? 'Offline unlock expired. Please connect to the internet.' : error}
           </Text>
         ) : null}
 

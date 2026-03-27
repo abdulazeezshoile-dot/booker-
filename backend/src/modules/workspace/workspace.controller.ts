@@ -77,4 +77,13 @@ export class WorkspaceController {
   async removeUser(@Param('id') id: string, @Param('userId') userId: string) {
     return this.workspaceService.removeUserFromWorkspace(id, userId);
   }
+
+  @Post(':id/invite')
+  async inviteUser(
+    @Param('id') id: string,
+    @Body() inviteDto: { email: string; role?: string },
+    @Request() req,
+  ) {
+    return this.workspaceService.inviteUser(id, req.user.sub, inviteDto);
+  }
 }

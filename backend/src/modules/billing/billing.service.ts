@@ -461,6 +461,30 @@ export class BillingService {
     return ctx;
   }
 
+  async assertActiveSubscription(
+    userId: string,
+    feature?: string,
+  ): Promise<Subscription> {
+    const subscription = await this.subscriptionsRepository.findOne({
+      where: { userId },
+    });
+
+    if (!subscription || subscription.status !== 'active') {
+      throw new ForbiddenException({
+        statusCode: 403,
+        code: 'SUBSCRIPTION_INACTIVE',
+        message:
+          'Your subscription is inactive or expired. Subscribe at bizrecord.tech to continue.',
+        meta: {
+          status: subscription?.status || 'inactive',
+          feature: feature || null,
+        },
+      } as any);
+    }
+
+    return subscription;
+  }
+
   async assertWorkspaceProFeature(
     workspaceId: string,
     feature: string,
@@ -1176,6 +1200,238 @@ export class BillingService {
     });
 
     return { sent: true };
+  }
+
+  private getFlutterwaveConfig() {
+    const secretKey = process.env.FLUTTERWAVE_SECRET_KEY;
+    if (!secretKey) {
+      throw new BadRequestException('FLUTTERWAVE_SECRET_KEY is not configured');
+    }
+    return {
+      secretKey,
+      baseUrl:
+        process.env.FLUTTERWAVE_BASE_URL || 'https://api.flutterwave.com/v3',
+      callbackUrl:
+        process.env.FLUTTERWAVE_CALLBACK_URL ||
+        'http://localhost:3001/billing/verify',
+      webhookHash: process.env.FLUTTERWAVE_WEBHOOK_HASH || null,
+    };
+  }
+
+  private async flutterwaveRequest<T>(
+    path: string,
+    options: { method?: string; body?: unknown } = {},
+  ): Promise<T> {
+    const { secretKey, baseUrl } = this.getFlutterwaveConfig();
+    const response = await fetch(`${baseUrl}${path}`, {
+      method: options.method || 'GET',
+      headers: {
+        Authorization: `Bearer ${secretKey}`,
+        'Content-Type': 'application/json',
+        Accept: 'application/json',
+      },
+      body: options.body ? JSON.stringify(options.body) : undefined,
+      cache: 'no-store',
+    });
+
+    const data = await response.json().catch(() => null);
+    if (!response.ok) {
+      throw new BadRequestException(
+        data?.message || `Flutterwave request failed (${response.status})`,
+      );
+    }
+    return data as T;
+  }
+
+  async initializeCheckout(
+    userId: string,
+    dto: { plan?: 'basic' | 'pro'; billingCycle?: 'monthly' | 'yearly' },
+  ) {
+    const plan: PlanKey = dto.plan === 'pro' ? 'pro' : 'basic';
+    const billingCycle: BillingCycle =
+      dto.billingCycle === 'yearly' ? 'yearly' : 'monthly';
+    const amount = this.toCycleAmount(PLAN_PRICES_NGN[plan], billingCycle);
+
+    const user = await this.usersRepository.findOne({ where: { id: userId } });
+    if (!user) throw new NotFoundException('User not found');
+
+    const reference = `bizrecord_${plan}_${billingCycle}_${Date.now()}_${userId.slice(0, 8)}`;
+    const { callbackUrl } = this.getFlutterwaveConfig();
+
+    let payment = await this.paymentsRepository.findOne({
+      where: { reference },
+    });
+    if (!payment) {
+      payment = this.paymentsRepository.create({
+        userId: user.id,
+        reference,
+        status: 'pending',
+        amount,
+        currency: 'NGN',
+        purchaseType: 'plan_upgrade',
+        billingCycle,
+        targetPlan: plan,
+        addonWorkspaceSlots: 0,
+        addonStaffSeats: 0,
+        addonWhatsappBundles: 0,
+        metadata: {
+          provider: 'flutterwave',
+          plan,
+          billingCycle,
+        },
+        rawResponse: null,
+      });
+      await this.paymentsRepository.save(payment);
+    }
+
+    const result = await this.flutterwaveRequest<{
+      data: { link: string; id: number };
+      message?: string;
+    }>('/payments', {
+      method: 'POST',
+      body: {
+        tx_ref: reference,
+        amount: String(amount),
+        currency: 'NGN',
+        redirect_url: callbackUrl,
+        payment_options: 'card,banktransfer,ussd,account',
+        customer: {
+          email: user.email,
+          name: user.name || 'BizRecord customer',
+          phonenumber: user.phone || undefined,
+        },
+        customizations: {
+          title: 'BizRecord',
+          description: `${plan === 'pro' ? 'Pro' : 'Basic'} plan (${billingCycle})`,
+        },
+        meta: {
+          userId: user.id,
+          plan,
+          billingCycle,
+          reference,
+        },
+      },
+    });
+
+    const checkoutUrl = result?.data?.link;
+    if (!checkoutUrl) {
+      throw new BadRequestException(
+        result?.message || 'Flutterwave did not return a payment link',
+      );
+    }
+
+    payment.metadata = {
+      ...(payment.metadata || {}),
+      flutterwaveTransactionId: result.data.id,
+    };
+    await this.paymentsRepository.save(payment);
+
+    return {
+      reference,
+      checkoutUrl,
+      amount,
+      currency: 'NGN',
+      plan,
+      billingCycle,
+    };
+  }
+
+  async verifyFlutterwavePayment(userId: string, reference: string) {
+    const payment = await this.paymentsRepository.findOne({
+      where: { reference },
+    });
+    if (!payment) {
+      throw new NotFoundException('Payment not found');
+    }
+    if (payment.userId !== userId) {
+      throw new ForbiddenException('Payment does not belong to this user');
+    }
+
+    const subscription = await this.subscriptionsRepository.findOne({
+      where: { userId },
+    });
+
+    if (payment.status === 'success') {
+      return {
+        status: 'success',
+        alreadyConfirmed: true,
+        reference,
+        subscription,
+      };
+    }
+
+    const result = await this.flutterwaveRequest<{
+      status: string;
+      message?: string;
+      data: {
+        id: number;
+        tx_ref: string;
+        status: string;
+        amount: number;
+        currency: string;
+      } | null;
+    }>(`/transactions/verify_by_reference?tx_ref=${encodeURIComponent(reference)}`);
+
+    const transaction = result?.data;
+    const successful = transaction?.status === 'successful';
+
+    if (successful) {
+      await this.applySuccessfulPayment(payment, {
+        provider: 'flutterwave',
+        data: transaction,
+      });
+    } else {
+      payment.status = 'failed';
+      payment.rawResponse = (transaction as Record<string, unknown>) || null;
+      await this.paymentsRepository.save(payment);
+    }
+
+    const updatedSubscription = await this.subscriptionsRepository.findOne({
+      where: { userId },
+    });
+    return {
+      status: successful ? 'success' : 'failed',
+      reference,
+      subscription: updatedSubscription,
+    };
+  }
+
+  async handleFlutterwaveWebhook(
+    payload: Record<string, any>,
+    verifHash?: string,
+  ) {
+    const { webhookHash } = this.getFlutterwaveConfig();
+    if (webhookHash && verifHash !== webhookHash) {
+      throw new UnauthorizedException('Invalid Flutterwave webhook signature');
+    }
+
+    const data = (payload?.data || {}) as Record<string, any>;
+    const reference = data?.tx_ref;
+    if (!reference) {
+      return { received: true, handled: false, message: 'Missing tx_ref' };
+    }
+
+    const payment = await this.paymentsRepository.findOne({
+      where: { reference },
+    });
+    if (!payment) {
+      return { received: true, handled: false, message: 'Unknown reference' };
+    }
+
+    if (data?.status === 'successful') {
+      await this.applySuccessfulPayment(payment, {
+        provider: 'flutterwave',
+        data,
+      });
+    } else if (data?.status === 'failed' || data?.status === 'cancelled') {
+      if (payment.status !== 'success') {
+        payment.status = 'failed';
+        payment.rawResponse = data;
+        await this.paymentsRepository.save(payment);
+      }
+    }
+
+    return { received: true, handled: true };
   }
 
   async handleGoogleWebhook(

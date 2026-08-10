@@ -17,6 +17,16 @@
         "buildType": "apk"
       }
     },
+    "staging": {
+      "environment": "preview",
+      "env": {
+        "APP_ENV": "staging"
+      },
+      "autoIncrement": true,
+      "android": {
+        "buildType": "app-bundle"
+      }
+    },
     "production": {
       "environment": "production",
       "autoIncrement": true,

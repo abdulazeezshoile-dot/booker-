@@ -2,7 +2,7 @@
   "expo": {
     "name": "BizRecord",
     "slug": "bizrecord",
-    "version": "1.0.1",
+    "version": "1.0.2",
     "orientation": "portrait",
     "userInterfaceStyle": "automatic",
     "cli": {
@@ -19,7 +19,7 @@
       "android"
     ],
     "scheme": "bizrecord",
-    "runtimeVersion": "1.0.1",
+    "runtimeVersion": "1.0.2",
     "updates": {
       "fallbackToCacheOnError": true
     },
@@ -28,7 +28,7 @@
     ],
     "android": {
       "package": "com.bizrecord.inventory",
-      "versionCode": 2,
+      "versionCode": 3,
       "screenOrientation": "sensor",
       "adaptiveIcon": {
         "foregroundImage": "./assets/adaptive-icon.png",
@@ -79,7 +79,8 @@
         {
           "android": {
             "kotlinVersion": "2.2.0",
-            "targetSdkVersion": 35
+            "compileSdkVersion": 36,
+            "targetSdkVersion": 36
           }
         }
       ]

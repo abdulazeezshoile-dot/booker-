@@ -1,7 +1,13 @@
 import Purchases from 'react-native-purchases';
 import { Platform } from 'react-native';
 
-const REVENUECAT_API_KEY = process.env.EXPO_PUBLIC_REVENUECAT_API_KEY || 'test_LuUpiFNVXyzVsmFKYPTDQnTrmBj';
+const REVENUECAT_API_KEY = process.env.EXPO_PUBLIC_REVENUECAT_API_KEY;
+
+if (!REVENUECAT_API_KEY) {
+  console.warn(
+    '[RevenueCat] EXPO_PUBLIC_REVENUECAT_API_KEY is not set. Set it in .env / .env.preview / .env.production before building.',
+  );
+}
 
 export const ENTITLEMENTS = {
   PRO: 'bizrecord_pro',
@@ -71,18 +77,31 @@ export function getAddonProductId(addonType, billingCycle) {
   return null;
 }
 
+let isConfigured = false;
+
 export async function configureRevenueCat(userId) {
+  if (!REVENUECAT_API_KEY) {
+    console.warn(
+      '[RevenueCat] Skipping configure: EXPO_PUBLIC_REVENUECAT_API_KEY is not set.',
+    );
+    return { configured: false };
+  }
   try {
-    await Purchases.configure({
-      apiKey: REVENUECAT_API_KEY,
-      appUserID: userId || undefined,
-    });
+    const config = { apiKey: REVENUECAT_API_KEY };
+    if (userId) {
+      config.appUserID = userId;
+    }
+    await Purchases.configure(config);
+    isConfigured = true;
+    return { configured: true };
   } catch (error) {
     console.error('RevenueCat configure error:', error);
+    return { configured: false };
   }
 }
 
 export async function setRevenueCatUserId(userId) {
+  if (!isConfigured) return;
   try {
     await Purchases.logIn(userId);
   } catch (error) {
@@ -91,6 +110,7 @@ export async function setRevenueCatUserId(userId) {
 }
 
 export async function resetRevenueCatUser() {
+  if (!isConfigured) return;
   try {
     await Purchases.logOut();
   } catch (error) {
@@ -99,6 +119,7 @@ export async function resetRevenueCatUser() {
 }
 
 export async function getOfferings() {
+  if (!isConfigured) return null;
   try {
     const offerings = await Purchases.getOfferings();
     return offerings;
@@ -109,6 +130,7 @@ export async function getOfferings() {
 }
 
 export async function getCurrentOffering() {
+  if (!isConfigured) return null;
   try {
     const offerings = await Purchases.getOfferings();
     return offerings?.current || null;
@@ -152,6 +174,7 @@ export async function restorePurchases() {
 }
 
 export async function getCustomerInfo() {
+  if (!isConfigured) return null;
   try {
     const customerInfo = await Purchases.getCustomerInfo();
     return customerInfo;
@@ -200,7 +223,15 @@ export function setUserEmail(email) {
 }
 
 export function addCustomerInfoUpdateListener(listener) {
-  return Purchases.addCustomerInfoUpdateListener(listener);
+  try {
+    return Purchases.addCustomerInfoUpdateListener(listener);
+  } catch (error) {
+    console.warn(
+      '[RevenueCat] addCustomerInfoUpdateListener error:',
+      error?.message,
+    );
+    return () => {};
+  }
 }
 
 export function removeCustomerInfoUpdateListener(listenerOrSubscription) {

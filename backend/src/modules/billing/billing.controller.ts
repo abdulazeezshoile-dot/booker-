@@ -56,21 +56,24 @@ export class BillingController {
   @UseGuards(JwtAuthGuard)
   @Post('checkout')
   async checkout(@Request() req, @Body() dto: InitiateCheckoutDto) {
-    // Paystack checkout deprecated — migrate to Google Play Billing.
-    return {
-      error:
-        'Paystack checkout deprecated. Use Google Play Billing on Android to purchase subscriptions.',
-    };
+    return this.billingService.initializeCheckout(req.user.sub, dto);
   }
 
   @UseGuards(JwtAuthGuard)
   @Post('verify')
   async verify(@Request() req, @Body() dto: VerifyPaymentDto) {
-    // Paystack verification deprecated.
-    return {
-      error:
-        'Paystack payment verification is deprecated. Please migrate to Google Play Billing.',
-    };
+    return this.billingService.verifyFlutterwavePayment(
+      req.user.sub,
+      dto.reference,
+    );
+  }
+
+  @Post('webhook/flutterwave')
+  async flutterwaveWebhook(
+    @Body() payload: Record<string, any>,
+    @Headers('verif-hash') verifHash?: string,
+  ) {
+    return this.billingService.handleFlutterwaveWebhook(payload, verifHash);
   }
 
   @Post('webhook/paystack')

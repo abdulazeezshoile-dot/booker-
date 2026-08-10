@@ -3,5 +3,6 @@
   <color name="iconBackground">#031f38</color>
   <color name="colorPrimary">#00A676</color>
   <color name="colorPrimaryDark">#031f38</color>
+  <color name="navigationBarColor">#031f38</color>
   <color name="activityBackground">#ffffff</color>
 </resources>

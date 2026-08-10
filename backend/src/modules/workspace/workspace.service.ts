@@ -28,6 +28,7 @@ import {
 } from './dto/update-branch-member.dto';
 import { AuditLogService } from './audit-log.service';
 import { AuditLog } from './entities/audit-log.entity';
+import { BillingService } from '../billing/billing.service';
 
 @Injectable()
 export class WorkspaceService {
@@ -59,6 +60,7 @@ export class WorkspaceService {
     private readonly emailTemplateService: EmailTemplateService,
     private readonly branchAccessService: BranchAccessService,
     private readonly auditLogService: AuditLogService,
+    private readonly billingService: BillingService,
   ) {}
 
   private normalizeWorkspaceRole(role?: string): 'owner' | 'manager' | 'staff' {
@@ -247,7 +249,8 @@ export class WorkspaceService {
       throw new NotFoundException('User not found');
     }
 
-    // Free early-testing mode: workspace creation is not gated by plan state.
+    // Subscription gate: creating a workspace requires an active subscription.
+    await this.billingService.assertActiveSubscription(user.id, 'workspace.create');
 
     if (createWorkspaceDto.parentWorkspaceId) {
       throw new BadRequestException(
@@ -387,6 +390,8 @@ export class WorkspaceService {
         workspaceId,
         requesterId,
       );
+
+    await this.billingService.assertWorkspaceActive(workspaceId, 'branch.create');
 
     let managerUser: User | null = null;
     if (dto.managerUserId) {

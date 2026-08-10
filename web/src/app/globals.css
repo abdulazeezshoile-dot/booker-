@@ -1,0 +1,181 @@
+@import 'tailwindcss';
+
+/* Class-based dark mode so the in-app toggle mirrors the Expo ThemeContext. */
+@custom-variant dark (&:where(.dark, .dark *));
+
+/*
+ * Design tokens.
+ *
+ * Brand ramp + typography are taken from the marketing page the backend serves
+ * (backend/src/modules/public/public.controller.ts): teal --brand #0f766e /
+ * --brand-2 #14b8a6, ink #0f172a, muted #475569, line #dbe4ee, bg #f8fafc,
+ * dark #0b1324, with the 'Segoe UI' UI stack and Georgia for long-form prose.
+ *
+ * The in-app surface colors mirror src/theme/ThemeContext.js from the Expo app
+ * (primary #00A676, accent #FBBF24, success/error/warning, dark #1F2937 /
+ * #374151) so the web app reads as the same product as the mobile app.
+ */
+@theme {
+  --color-brand-50: #ecfdf7;
+  --color-brand-100: #d1fae9;
+  --color-brand-200: #a7f3d6;
+  --color-brand-300: #6ee7bd;
+  --color-brand-400: #34d3a0;
+  --color-brand-500: #00a676; /* Expo ThemeContext primary */
+  --color-brand-600: #0d9488;
+  --color-brand-700: #0f766e; /* public.controller.ts --brand */
+  --color-brand-800: #115e59;
+  --color-brand-900: #134e4a;
+  --color-brand-teal: #14b8a6; /* public.controller.ts --brand-2 */
+
+  --color-accent: #fbbf24;
+  --color-accent-soft: #fef3c7;
+
+  --color-ink: #0f172a;
+  --color-ink-deep: #0b1324;
+  --color-muted: #475569;
+  --color-line: #dbe4ee;
+
+  --color-ok: #10b981;
+  --color-danger: #ef4444;
+  --color-warn: #f59e0b;
+
+  --font-sans: 'Segoe UI', Tahoma, Geneva, Verdana, system-ui, sans-serif;
+  --font-serif: Georgia, 'Times New Roman', serif;
+
+  --radius-card: 18px;
+  --radius-panel: 24px;
+
+  --shadow-card: 0 12px 32px rgba(15, 23, 42, 0.05);
+  --shadow-panel: 0 18px 60px rgba(15, 23, 42, 0.08);
+  --shadow-cta: 0 12px 24px rgba(15, 118, 110, 0.2);
+}
+
+/*
+ * Semantic surface variables. Each has a light value here and a dark override
+ * below, so components can use bg-[var(--surface)] and follow the theme.
+ */
+:root {
+  --bg: #f8fafc;
+  --bg-app: #f3f7f5; /* Expo backgroundColor */
+  --surface: #ffffff;
+  --surface-2: #f8fafc;
+  --surface-raised: #ffffff;
+  --text-primary: #0f172a;
+  --text-secondary: #475569;
+  --text-faint: #64748b;
+  --border: #e5e7eb;
+  --border-soft: #eef2f7;
+}
+
+.dark {
+  --bg: #111827;
+  --bg-app: #1f2937; /* Expo dark backgroundColor */
+  --surface: #1f2937;
+  --surface-2: #111827;
+  --surface-raised: #374151; /* Expo dark cardColor */
+  --text-primary: #f9fafb;
+  --text-secondary: #d1d5db;
+  --text-faint: #9ca3af;
+  --border: #4b5563;
+  --border-soft: #374151;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html {
+  scroll-behavior: smooth;
+}
+
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--text-primary);
+  font-family: var(--font-sans);
+  line-height: 1.6;
+  -webkit-font-smoothing: antialiased;
+}
+
+h1,
+h2,
+h3,
+h4 {
+  line-height: 1.14;
+  text-wrap: balance;
+}
+
+/* Marketing pages keep the serif body voice from the backend-rendered page. */
+.prose-marketing {
+  font-family: var(--font-serif);
+}
+
+/* Focus ring used by every interactive component. */
+.focus-ring {
+  outline: none;
+}
+.focus-ring:focus-visible {
+  outline: 2px solid var(--color-brand-500);
+  outline-offset: 2px;
+  border-radius: 8px;
+}
+
+/* Thin scrollbars inside app panes. */
+.scroll-thin::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+.scroll-thin::-webkit-scrollbar-thumb {
+  background: color-mix(in srgb, var(--text-faint) 35%, transparent);
+  border-radius: 999px;
+}
+.scroll-thin::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+@keyframes shimmer {
+  100% {
+    transform: translateX(100%);
+  }
+}
+
+.skeleton {
+  position: relative;
+  overflow: hidden;
+  background: color-mix(in srgb, var(--text-faint) 14%, transparent);
+}
+.skeleton::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  transform: translateX(-100%);
+  background: linear-gradient(
+    90deg,
+    transparent,
+    color-mix(in srgb, var(--surface) 60%, transparent),
+    transparent
+  );
+  animation: shimmer 1.6s infinite;
+}
+
+@keyframes fade-up {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+.animate-fade-up {
+  animation: fade-up 0.24s ease-out both;
+}
+
+@media print {
+  .no-print {
+    display: none !important;
+  }
+}

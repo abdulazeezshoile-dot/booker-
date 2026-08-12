@@ -870,6 +870,7 @@ export class BillingService {
 
     user.plan = subscription.plan;
     user.trialStatus = 'converted';
+    user.onboardingStatus = 'complete';
     await this.usersRepository.save(user);
 
     if (options?.sendNotifications !== false && paymentRecord.isFirstSuccess) {
@@ -1255,6 +1256,25 @@ export class BillingService {
     const user = await this.usersRepository.findOne({ where: { id: userId } });
     if (!user) throw new NotFoundException('User not found');
 
+    if (!user.emailVerified) {
+      throw new ForbiddenException('Verify your email before choosing a plan');
+    }
+
+    // Selecting a plan is not activation. Keep this record pending until the
+    // payment provider confirmation is verified by the backend.
+    let pendingSubscription = await this.subscriptionsRepository.findOne({
+      where: { userId: user.id },
+    });
+    if (!pendingSubscription || pendingSubscription.status !== 'active') {
+      pendingSubscription =
+        pendingSubscription || this.subscriptionsRepository.create({ userId: user.id });
+      pendingSubscription.plan = plan;
+      pendingSubscription.billingCycle = billingCycle;
+      pendingSubscription.status = 'pending';
+      pendingSubscription.trialEndsAt = null;
+      await this.subscriptionsRepository.save(pendingSubscription);
+    }
+
     const reference = `bizrecord_${plan}_${billingCycle}_${Date.now()}_${userId.slice(0, 8)}`;
     const { callbackUrl } = this.getFlutterwaveConfig();
 
@@ -1511,6 +1531,7 @@ export class BillingService {
 
     user.plan = payment.targetPlan === 'basic' ? 'basic' : 'pro';
     user.trialStatus = 'converted';
+    user.onboardingStatus = 'complete';
     await this.usersRepository.save(user);
 
     subscription.plan = user.plan;

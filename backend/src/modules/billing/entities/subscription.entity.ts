@@ -25,7 +25,7 @@ export class Subscription {
   plan: 'basic' | 'pro';
 
   @Column({ default: 'trialing' })
-  status: 'trialing' | 'active' | 'expired' | 'cancelled';
+  status: 'pending' | 'trialing' | 'active' | 'expired' | 'cancelled';
 
   @Column({ default: 'monthly', name: 'billing_cycle' })
   billingCycle: 'monthly' | 'yearly';

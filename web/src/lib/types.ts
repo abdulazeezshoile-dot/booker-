@@ -22,7 +22,8 @@ export interface User {
   name: string;
   phone?: string | null;
   role: UserRole;
-  plan: Plan;
+  plan: Plan | null;
+  onboardingStatus?: 'pending_email_verification' | 'pending_payment' | 'complete';
   trialStartAt?: string | null;
   trialEndsAt?: string | null;
   trialStatus?: 'active' | 'expired' | 'converted';

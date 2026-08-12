@@ -219,6 +219,7 @@ export class RevenueCatWebhookService {
           await this.subscriptionsRepository.save(subscription);
 
           user.plan = subscription.plan;
+          user.onboardingStatus = 'complete';
           if (periodType !== 'TRIAL' && !isTrialConversion) {
             user.trialStatus = 'converted';
           }

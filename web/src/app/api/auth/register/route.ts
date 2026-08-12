@@ -1,5 +1,5 @@
 import { NextRequest } from 'next/server';
-import { authLogin } from '@/lib/auth-route';
+import { authPublic } from '@/lib/auth-route';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -18,7 +18,7 @@ export async function POST(req: NextRequest) {
     );
   }
 
-  const result = await authLogin('/auth/register', {
+  const result = await authPublic('/auth/register', {
     name: body.name,
     email: body.email,
     phone: body.phone || undefined,
@@ -26,10 +26,10 @@ export async function POST(req: NextRequest) {
   });
 
   // Registration does not log the user in; the returned body is just the user.
-  // Mirror the mobile flow: keep the session cookie but let the client route to
-  // /verify-email using the response's requiresEmailVerification signal.
+  // Mirror the mobile flow: route the client to /verify-email via the
+  // requiresEmailVerification signal.
   const data = await result.json().catch(() => null);
-  if (result.ok && data && !data.access_token) {
+  if (result.ok && data && typeof data === 'object') {
     return new Response(
       JSON.stringify({ ...data, requiresEmailVerification: true }),
       { status: 200, headers: { 'Content-Type': 'application/json' } },

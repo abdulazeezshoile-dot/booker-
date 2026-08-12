@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { Modal } from 'react-native';
+import { Modal, Linking } from 'react-native';
 import {
   View,
   Text,
@@ -13,6 +13,7 @@ import { Card, AppButton } from '../../components/UI';
 import { useAuth } from '../../context/AuthContext';
 import { useTheme } from '../../theme/ThemeContext';
 import { showSuccessToast } from '../../utils/toast';
+import { getRegisterUrl } from '../../services/websiteUrl';
 
 export default function LoginScreen({ navigation, route }) {
   const { login, setBiometricOptIn, isBiometricAvailable, getBiometricOptIn } = useAuth();
@@ -115,10 +116,10 @@ export default function LoginScreen({ navigation, route }) {
           />
           <AppButton
             title="Create an account"
-            onPress={() => navigation.navigate('Register')}
+            onPress={() => Linking.openURL(getRegisterUrl())}
             variant="secondary"
             style={{ marginTop: 10 }}
-            accessibilityLabel="Create an account"
+            accessibilityLabel="Create an account on the website"
           />
         </Card>
       </KeyboardAvoidingView>

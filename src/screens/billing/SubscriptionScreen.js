@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import {
   View,
   Text,
@@ -7,17 +7,16 @@ import {
   TouchableOpacity,
   ActivityIndicator,
   Alert,
-  Platform,
+  Linking,
 } from 'react-native';
 import { MaterialIcons } from '@expo/vector-icons';
 import { useTheme } from '../../theme/ThemeContext';
 import { useWorkspace } from '../../context/WorkspaceContext';
-import { useRevenueCat } from '../../context/RevenueCatContext';
 import { useAuth } from '../../context/AuthContext';
 import { Card, AppButton, Title } from '../../components/UI';
 import { api } from '../../api/client';
 import * as offlineStore from '../../storage/offlineStore';
-import { ENTITLEMENTS, PRODUCT_IDS, getProductMeta, getPlanProductId } from '../../services/revenuecat';
+import { getSubscriptionUrl } from '../../services/websiteUrl';
 
 const PLAN_ORDER = ['basic', 'pro'];
 const DEFAULT_ADDONS = {
@@ -58,6 +57,9 @@ function getTrialDaysLeft(subscription) {
 
 const isLikelyOfflineError = (err) => !err?.response;
 
+const isActiveStatus = (status) =>
+  status === 'active' || status === 'trialing';
+
 export default function SubscriptionScreen({ navigation }) {
   const { theme } = useTheme();
   const [plans, setPlans] = useState(null);
@@ -66,43 +68,21 @@ export default function SubscriptionScreen({ navigation }) {
   const [workspaceBilling, setWorkspaceBilling] = useState(null);
   const [loading, setLoading] = useState(true);
   const [processing, setProcessing] = useState(false);
-  const [selectedPlan, setSelectedPlan] = useState('pro');
   const [billingCycle, setBillingCycle] = useState('monthly');
-  const [selectedAddons, setSelectedAddons] = useState({
-    workspaceSlot: false,
-    staffSeat: false,
-    whatsappBundle: false,
-  });
   const [onlineRequired, setOnlineRequired] = useState(false);
-  const [showAddonModal, setShowAddonModal] = useState(false);
-  const [processingAddon, setProcessingAddon] = useState(false);
 
   const workspace = useWorkspace();
-  const { user, setPauseAutoLock } = useAuth();
-  const revenuecat = useRevenueCat();
+  const { user } = useAuth();
 
   const currentWorkspace =
     workspace.currentWorkspace ||
     workspace.workspaces.find((w) => w.id === workspace.currentWorkspaceId);
   const userRole = currentWorkspace?.role || user?.role || 'user';
   const isWorkspaceOwner = userRole === 'owner';
-  const addonsAllowed = subscription?.trial?.addonsAllowed !== false;
-  const addonsSelectable = addonsAllowed && selectedPlan === 'pro';
   const workspaceCount = workspace.workspaces?.length || 0;
   const trialDaysLeft = getTrialDaysLeft(subscription);
 
-  const currentOffering = revenuecat.offerings?.current || null;
-  const packages = currentOffering?.availablePackages || [];
-
-  const selectedPackage = useMemo(() => {
-    const targetId = getPlanProductId(selectedPlan, billingCycle);
-    return packages.find((p) => p.product?.identifier === targetId)
-      || packages.find((p) => {
-        const meta = getProductMeta(p.product?.identifier);
-        return meta?.plan === selectedPlan && meta?.billingCycle === billingCycle;
-      })
-      || null;
-  }, [packages, selectedPlan, billingCycle]);
+  const subscriptionActive = isActiveStatus(subscription?.status);
 
   const refreshBilling = async () => {
     let workspaceId = currentWorkspace?.id;
@@ -124,7 +104,6 @@ export default function SubscriptionScreen({ navigation }) {
         whatsappMessagesUsedThisMonth: billingCtx?.usage?.whatsappMessagesUsedThisMonth ?? 0,
         limits: billingCtx?.limits || {},
       });
-      setSelectedPlan(billingCtx?.plan || 'pro');
       setBillingCycle(billingCtx?.billingCycle || 'monthly');
 
       if (workspaceId) {
@@ -172,101 +151,8 @@ export default function SubscriptionScreen({ navigation }) {
     return unsubscribe;
   }, [navigation, currentWorkspace?.id]);
 
-  const totalAmount = useMemo(() => {
-    if (!plans) return 0;
-    const yearly = billingCycle === 'yearly';
-    const planPrice = yearly
-      ? selectedPlan === 'pro'
-        ? plans?.pro?.pricing?.yearly || Math.round(7000 * 12 * 0.8)
-        : plans?.basic?.pricing?.yearly || Math.round(2500 * 12 * 0.8)
-      : selectedPlan === 'pro'
-        ? plans?.pro?.pricing?.monthly || 7000
-        : plans?.basic?.pricing?.monthly || 2500;
-    return planPrice;
-  }, [plans, selectedPlan, billingCycle]);
-
-  const startCheckout = async () => {
-    if (!selectedPackage) {
-      Alert.alert('Not available', 'Selected plan is not available for purchase right now.');
-      return;
-    }
-    setProcessing(true);
-    setPauseAutoLock(true);
-    try {
-      const result = await revenuecat.purchasePackage(selectedPackage);
-      if (result.success) {
-        await refreshBilling();
-        Alert.alert('Success', 'Subscription activated!');
-      } else if (!result.cancelled) {
-        Alert.alert('Purchase failed', result.error || 'An error occurred.');
-      }
-    } finally {
-      setProcessing(false);
-      setPauseAutoLock(false);
-    }
-  };
-
-  const startAddonCheckout = async () => {
-    setProcessingAddon(true);
-    setPauseAutoLock(true);
-    try {
-      const addonTypes = Object.entries(selectedAddons)
-        .filter(([, selected]) => selected)
-        .map(([key]) => key);
-
-      for (const addonType of addonTypes) {
-        const addonProductId = addonType === 'workspaceSlot'
-          ? (billingCycle === 'yearly' ? PRODUCT_IDS.ADDON_WORKSPACE_YEARLY : PRODUCT_IDS.ADDON_WORKSPACE_MONTHLY)
-          : addonType === 'staffSeat'
-            ? (billingCycle === 'yearly' ? PRODUCT_IDS.ADDON_STAFF_YEARLY : PRODUCT_IDS.ADDON_STAFF_MONTHLY)
-            : (billingCycle === 'yearly' ? PRODUCT_IDS.ADDON_WHATSAPP100_YEARLY : PRODUCT_IDS.ADDON_WHATSAPP100_MONTHLY);
-
-        const pkg = packages.find((p) => p.product?.identifier === addonProductId);
-        if (!pkg) {
-          Alert.alert('Not available', `Add-on ${addonType} is not available right now.`);
-          continue;
-        }
-
-        const result = await revenuecat.purchasePackage(pkg);
-        if (!result.success && !result.cancelled) {
-          Alert.alert('Purchase failed', `Failed to purchase ${addonType}: ${result.error}`);
-          break;
-        }
-      }
-
-      await refreshBilling();
-      setSelectedAddons({ workspaceSlot: false, staffSeat: false, whatsappBundle: false });
-      setShowAddonModal(false);
-      Alert.alert('Add-ons processed', 'Your add-on purchases have been processed.');
-    } finally {
-      setProcessingAddon(false);
-      setPauseAutoLock(false);
-    }
-  };
-
-  const handleRestore = async () => {
-    setProcessing(true);
-    setPauseAutoLock(true);
-    try {
-      const result = await revenuecat.restorePurchases();
-      if (result.success) {
-        await refreshBilling();
-        Alert.alert('Restored', 'Your purchases have been restored.');
-      } else {
-        Alert.alert('Restore failed', result.error || 'No purchases found to restore.');
-      }
-    } finally {
-      setProcessing(false);
-      setPauseAutoLock(false);
-    }
-  };
-
-  const handleShowCustomerCenter = () => {
-    navigation?.navigate('CustomerCenter');
-  };
-
-  const toggleAddon = (key) => {
-    setSelectedAddons((prev) => ({ ...prev, [key]: !prev[key] }));
+  const openWebsite = () => {
+    Linking.openURL(getSubscriptionUrl()).catch(() => {});
   };
 
   const notifyOwner = async () => {
@@ -300,7 +186,7 @@ export default function SubscriptionScreen({ navigation }) {
         <Card style={{ width: '100%', maxWidth: 520 }}>
           <Title>Subscription & Billing</Title>
           <Text style={[styles.onlineRequiredText, { color: theme.colors.textSecondary }]}>
-            Billing is online-only. Connect to the internet to renew, upgrade, verify payment, or view live usage for this workspace.
+            Billing is online-only. Connect to the internet to view your subscription status and usage.
           </Text>
           <AppButton
             title="Try Again"
@@ -326,9 +212,6 @@ export default function SubscriptionScreen({ navigation }) {
     );
   }
 
-  const selectedPrice = selectedPackage?.product?.priceString
-    || (totalAmount ? `NGN ${totalAmount.toLocaleString()}` : '');
-
   return (
     <ScrollView
       style={[styles.container, { backgroundColor: theme.colors.background }]}
@@ -343,19 +226,20 @@ export default function SubscriptionScreen({ navigation }) {
 
       <Card>
         <Text style={[styles.sectionTitle, { color: theme.colors.textPrimary }]}>Current status</Text>
-        {revenuecat.isPro ? (
+        {subscriptionActive ? (
           <Text style={[styles.meta, { color: theme.colors.textSecondary }]}>
-            BizRecord Pro is active. {subscription?.currentPeriodEndsAt ? `Renews ${new Date(subscription.currentPeriodEndsAt).toLocaleDateString()}` : ''}
-          </Text>
-        ) : revenuecat.isBasic ? (
-          <Text style={[styles.meta, { color: theme.colors.textSecondary }]}>
-            Basic plan is active.
+            {(subscription?.plan || 'Basic').toUpperCase()} plan is active. {subscription?.currentPeriodEndsAt ? `Renews ${new Date(subscription.currentPeriodEndsAt).toLocaleDateString()}` : ''}
           </Text>
         ) : (
           <Text style={[styles.meta, { color: theme.colors.textSecondary }]}>
-            No active subscription. Select a plan below to get started.
+            No active subscription. Subscribe on the website to get started.
           </Text>
         )}
+        {subscription?.status === 'trialing' && trialDaysLeft > 0 ? (
+          <Text style={[styles.meta, { color: theme.colors.textSecondary }]}>
+            Trial ends in {trialDaysLeft} day{trialDaysLeft === 1 ? '' : 's'}.
+          </Text>
+        ) : null}
         {subscription?.currentPeriodEndsAt && (
           <Text style={[styles.meta, { color: theme.colors.textSecondary }]}>
             Renews / ends: {new Date(subscription.currentPeriodEndsAt).toLocaleDateString()}
@@ -367,7 +251,7 @@ export default function SubscriptionScreen({ navigation }) {
       </Card>
 
       <Card>
-        <Text style={[styles.sectionTitle, { color: theme.colors.textPrimary }]}>Choose plan</Text>
+        <Text style={[styles.sectionTitle, { color: theme.colors.textPrimary }]}>Plans</Text>
         <View style={styles.cycleSwitcher}>
           {['monthly', 'yearly'].map((cycle) => {
             const active = billingCycle === cycle;
@@ -392,7 +276,6 @@ export default function SubscriptionScreen({ navigation }) {
         </View>
 
         {PLAN_ORDER.map((planKey) => {
-          const active = selectedPlan === planKey;
           const basePrice = billingCycle === 'yearly'
             ? planKey === 'pro'
               ? plans?.pro?.pricing?.yearly || Math.round(7000 * 12 * 0.8)
@@ -401,59 +284,38 @@ export default function SubscriptionScreen({ navigation }) {
               ? plans?.pro?.pricing?.monthly || 7000
               : plans?.basic?.pricing?.monthly || 2500;
 
-          const targetId = getPlanProductId(planKey, billingCycle);
-          const pkg = packages.find((p) => p.product?.identifier === targetId);
-          const displayPrice = pkg?.product?.priceString || `NGN ${basePrice.toLocaleString()}`;
-
           return (
-            <TouchableOpacity
+            <View
               key={planKey}
               style={[
                 styles.planItem,
                 {
-                  borderColor: active ? theme.colors.primary : theme.colors.border,
-                  backgroundColor: active ? `${theme.colors.primary}15` : 'transparent',
+                  borderColor: theme.colors.border,
+                  backgroundColor: 'transparent',
                 },
               ]}
-              onPress={() => setSelectedPlan(planKey)}
             >
               <View style={{ flex: 1 }}>
                 <Text style={[styles.planTitle, { color: theme.colors.textPrimary }]}>
                   {planKey.toUpperCase()}
                 </Text>
                 <Text style={[styles.planPrice, { color: theme.colors.textSecondary }]}>
-                  {displayPrice}/{billingCycle === 'yearly' ? 'year' : 'month'}
+                  NGN {basePrice.toLocaleString()}/{billingCycle === 'yearly' ? 'year' : 'month'}
                 </Text>
               </View>
-              {active ? (
-                <MaterialIcons name="check-circle" size={20} color={theme.colors.primary} />
-              ) : null}
-            </TouchableOpacity>
+            </View>
           );
         })}
-      </Card>
 
-      <Card>
-        <Text style={[styles.sectionTitle, { color: theme.colors.textPrimary }]}>Pro add-ons</Text>
-        {selectedPlan !== 'pro' ? (
-          <Text style={[styles.meta, { color: theme.colors.textSecondary, marginBottom: 8 }]}>
-            Upgrade to Pro plan to enable add-ons.
-          </Text>
-        ) : subscription?.status === 'trialing' && trialDaysLeft > 0 ? (
-          <>
-            <Text style={[styles.meta, { color: theme.colors.textSecondary, marginBottom: 12 }]}>
-              Add extra capacity to your Pro subscription. Each add-on is a separate purchase.
-            </Text>
-            <AppButton
-              title="Browse Add-ons"
-              variant="secondary"
-              onPress={() => setShowAddonModal(true)}
-              disabled={processing}
-            />
-          </>
-        ) : (
-          <Text style={[styles.meta, { color: theme.colors.textSecondary, marginBottom: 8 }]}>
-            Add-ons are available after purchasing a plan.
+        <AppButton
+          title="Subscribe on the website"
+          icon="language"
+          onPress={openWebsite}
+          style={{ marginTop: 8 }}
+        />
+        {!isWorkspaceOwner && (
+          <Text style={[styles.meta, { color: theme.colors.textSecondary, marginTop: 8 }]}>
+            Only the workspace owner can renew or upgrade this subscription.
           </Text>
         )}
       </Card>
@@ -472,38 +334,6 @@ export default function SubscriptionScreen({ navigation }) {
         {usage?.automationPaused ? (
           <Text style={[styles.meta, { color: theme.colors.warning }]}>Automation paused: {usage?.reason}</Text>
         ) : null}
-      </Card>
-
-      <Card>
-        <Text style={[styles.total, { color: theme.colors.textPrimary }]}>
-          Total: {selectedPrice} / {billingCycle === 'yearly' ? 'year' : 'month'}
-        </Text>
-        <AppButton
-          title={processing ? 'Processing...' : (selectedPackage ? 'Subscribe' : 'Not available')}
-          icon="payments"
-          onPress={startCheckout}
-          loading={processing}
-          disabled={processing || !isWorkspaceOwner || !selectedPackage}
-        />
-        {!selectedPackage && (
-          <Text style={[styles.meta, { color: theme.colors.warning, marginTop: 4 }]}>
-            This plan is not currently available as an in-app purchase.
-          </Text>
-        )}
-        <AppButton
-          title="Restore purchases"
-          variant="secondary"
-          onPress={handleRestore}
-          disabled={processing}
-          style={{ marginTop: 10 }}
-        />
-        <AppButton
-          title="Manage subscription"
-          variant="ghost"
-          onPress={handleShowCustomerCenter}
-          disabled={processing}
-          style={{ marginTop: 6 }}
-        />
       </Card>
 
       <Card>
@@ -530,74 +360,6 @@ export default function SubscriptionScreen({ navigation }) {
           />
         )}
       </Card>
-
-      {showAddonModal && (
-        <View style={[styles.modal, { backgroundColor: 'rgba(0,0,0,0.5)' }]}>
-          <View style={[styles.modalContent, { backgroundColor: theme.colors.background }]}>
-            <View style={styles.modalHeader}>
-              <Text style={[styles.sectionTitle, { color: theme.colors.textPrimary }]}>Add-ons for your Pro plan</Text>
-              <TouchableOpacity onPress={() => setShowAddonModal(false)}>
-                <MaterialIcons name="close" size={24} color={theme.colors.textPrimary} />
-              </TouchableOpacity>
-            </View>
-
-            <ScrollView contentContainerStyle={{ padding: 16 }}>
-              <Text style={[styles.meta, { color: theme.colors.textSecondary, marginBottom: 16 }]}>
-                Select the add-ons you'd like to purchase. Each add-on is a separate charge.
-              </Text>
-
-              {[
-                { key: 'workspaceSlot', label: 'Extra workspace slot', unit: 1500 },
-                { key: 'staffSeat', label: 'Extra staff seat', unit: 500 },
-                { key: 'whatsappBundle', label: 'WhatsApp bundle (100 msgs)', unit: 2000 },
-              ].map((addon) => {
-                const price = billingCycle === 'yearly' ? Math.round(addon.unit * 12 * 0.8) : addon.unit;
-                const isSelected = selectedAddons[addon.key];
-                return (
-                  <TouchableOpacity
-                    key={addon.key}
-                    style={[
-                      styles.addonCheckbox,
-                      {
-                        borderColor: isSelected ? theme.colors.primary : theme.colors.border,
-                        backgroundColor: isSelected ? `${theme.colors.primary}15` : 'transparent',
-                      },
-                    ]}
-                    onPress={() => toggleAddon(addon.key)}
-                  >
-                    <View style={{ flex: 1 }}>
-                      <Text style={[styles.meta, { color: theme.colors.textPrimary, fontWeight: '600' }]}>{addon.label}</Text>
-                      <Text style={[styles.meta, { color: theme.colors.textSecondary }]}>
-                        NGN {price.toLocaleString()} / {billingCycle === 'yearly' ? 'year' : 'month'}
-                      </Text>
-                    </View>
-                    <MaterialIcons
-                      name={isSelected ? 'check-circle' : 'radio-button-unchecked'}
-                      size={24}
-                      color={isSelected ? theme.colors.primary : theme.colors.border}
-                    />
-                  </TouchableOpacity>
-                );
-              })}
-
-              <View style={{ marginTop: 20, gap: 10 }}>
-                <AppButton
-                  title={processingAddon ? 'Purchasing...' : 'Continue with selected'}
-                  onPress={startAddonCheckout}
-                  loading={processingAddon}
-                  disabled={processingAddon || !Object.values(selectedAddons).some((v) => v)}
-                />
-                <AppButton
-                  title="Skip add-ons"
-                  variant="secondary"
-                  onPress={() => setShowAddonModal(false)}
-                  disabled={processingAddon}
-                />
-              </View>
-            </ScrollView>
-          </View>
-        </View>
-      )}
     </ScrollView>
   );
 }
@@ -621,23 +383,4 @@ const styles = StyleSheet.create({
   planPrice: { fontSize: 12 },
   cycleSwitcher: { flexDirection: 'row', gap: 8, marginBottom: 10 },
   cycleChip: { borderWidth: 1, borderRadius: 999, paddingHorizontal: 12, paddingVertical: 7 },
-  total: { fontSize: 18, fontWeight: '800', marginBottom: 10 },
-  modal: {
-    position: 'absolute',
-    top: 0,
-    left: 0,
-    right: 0,
-    bottom: 0,
-    justifyContent: 'flex-end',
-  },
-  modalContent: { borderTopLeftRadius: 20, borderTopRightRadius: 20, maxHeight: '85%' },
-  modalHeader: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    paddingHorizontal: 16,
-    paddingTop: 16,
-    paddingBottom: 8,
-  },
-  addonCheckbox: { borderWidth: 1, borderRadius: 12, padding: 12, marginBottom: 12, flexDirection: 'row', alignItems: 'center' },
 });

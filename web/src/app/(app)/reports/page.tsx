@@ -205,10 +205,10 @@ export default function ReportsPage() {
           <div className="h-80 w-full">
             <ResponsiveContainer width="100%" height="100%">
               <BarChart data={analytics.recentMonths} margin={{ top: 8, right: 8, left: 0, bottom: 0 }}>
-                <CartesianGrid strokeDasharray="3 3" stroke="var(--line)" vertical={false} />
-                <XAxis dataKey="label" tick={{ fontSize: 12, fill: 'var(--text-faint)' }} axisLine={false} tickLine={false} />
-                <YAxis tick={{ fontSize: 12, fill: 'var(--text-faint)' }} axisLine={false} tickLine={false} />
-                <Tooltip content={<ChartTooltip />} cursor={{ fill: 'var(--surface-2)', opacity: 0.6 }} />
+                <CartesianGrid strokeDasharray="3 3" stroke="var(--color-line)" vertical={false} />
+                <XAxis dataKey="label" tick={{ fontSize: 12, fill: 'var(--color-text-faint)' }} axisLine={false} tickLine={false} />
+                <YAxis tick={{ fontSize: 12, fill: 'var(--color-text-faint)' }} axisLine={false} tickLine={false} />
+                <Tooltip content={<ChartTooltip />} cursor={{ fill: 'var(--color-surface-2)', opacity: 0.6 }} />
                 <Legend />
                 <Bar dataKey="income" name="Income" fill="#00a676" radius={[6, 6, 0, 0]} />
                 <Bar dataKey="expense" name="Expenses" fill="#f59e0b" radius={[6, 6, 0, 0]} />

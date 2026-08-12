@@ -30,7 +30,7 @@ function VerifyEmailForm() {
     setNotice(null);
     setLoading(true);
     try {
-      const res = await fetch('/api/proxy/auth/verify-email', {
+      const res = await fetch('/api/auth/verify-email', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ email: email.trim(), code: code.trim() }),
@@ -53,7 +53,7 @@ function VerifyEmailForm() {
     setNotice(null);
     setResending(true);
     try {
-      const res = await fetch('/api/proxy/auth/resend-verification', {
+      const res = await fetch('/api/auth/resend-verification', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ email: email.trim() }),

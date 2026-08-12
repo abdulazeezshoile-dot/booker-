@@ -40,6 +40,21 @@
   --color-danger: #ef4444;
   --color-warn: #f59e0b;
 
+  /* Semantic surface tokens. Tailwind v4 generates utilities (bg-surface,
+     text-text-primary, border-border, …) ONLY from --color-* names in @theme.
+     Each value has a light default here and a dark override in the .dark block
+     below; components just use the utility and follow the theme automatically. */
+  --color-bg: #f8fafc;
+  --color-bg-app: #f3f7f5; /* Expo backgroundColor */
+  --color-surface: #ffffff;
+  --color-surface-2: #f8fafc;
+  --color-surface-raised: #ffffff;
+  --color-text-primary: #0f172a;
+  --color-text-secondary: #475569;
+  --color-text-faint: #64748b;
+  --color-border: #e5e7eb;
+  --color-border-soft: #eef2f7;
+
   --font-sans: 'Segoe UI', Tahoma, Geneva, Verdana, system-ui, sans-serif;
   --font-serif: Georgia, 'Times New Roman', serif;
 
@@ -52,33 +67,31 @@
 }
 
 /*
- * Semantic surface variables. Each has a light value here and a dark override
- * below, so components can use bg-[var(--surface)] and follow the theme.
+ * Dark-mode overrides for the semantic tokens. Because the utilities above
+ * compile to `var(--color-…)`, re-declaring the same variables here flips the
+ * entire app to dark without touching any component.
  */
-:root {
-  --bg: #f8fafc;
-  --bg-app: #f3f7f5; /* Expo backgroundColor */
-  --surface: #ffffff;
-  --surface-2: #f8fafc;
-  --surface-raised: #ffffff;
-  --text-primary: #0f172a;
-  --text-secondary: #475569;
-  --text-faint: #64748b;
-  --border: #e5e7eb;
-  --border-soft: #eef2f7;
-}
-
 .dark {
-  --bg: #111827;
-  --bg-app: #1f2937; /* Expo dark backgroundColor */
-  --surface: #1f2937;
-  --surface-2: #111827;
-  --surface-raised: #374151; /* Expo dark cardColor */
-  --text-primary: #f9fafb;
-  --text-secondary: #d1d5db;
-  --text-faint: #9ca3af;
-  --border: #4b5563;
-  --border-soft: #374151;
+  --color-bg: #111827;
+  --color-bg-app: #1f2937; /* Expo dark backgroundColor */
+  --color-surface: #1f2937;
+  --color-surface-2: #111827;
+  --color-surface-raised: #374151; /* Expo dark cardColor */
+  --color-text-primary: #f9fafb;
+  --color-text-secondary: #d1d5db;
+  --color-text-faint: #9ca3af;
+  --color-border: #4b5563;
+  --color-border-soft: #374151;
+
+  /* Muted text and hairlines need to shift in dark too, otherwise labels and
+     chart gridlines stay #475569 / #dbe4ee and lose all contrast. */
+  --color-muted: #a3afbf;
+  --color-line: #2d3947;
+
+  /* Drop shadows fade on dark surfaces; deepen them so cards still lift. */
+  --shadow-card: 0 12px 32px rgba(0, 0, 0, 0.4);
+  --shadow-panel: 0 18px 60px rgba(0, 0, 0, 0.5);
+  --shadow-cta: 0 12px 24px rgba(0, 166, 118, 0.25);
 }
 
 * {
@@ -91,11 +104,12 @@ html {
 
 body {
   margin: 0;
-  background: var(--bg);
-  color: var(--text-primary);
+  background: var(--color-bg);
+  color: var(--color-text-primary);
   font-family: var(--font-sans);
   line-height: 1.6;
   -webkit-font-smoothing: antialiased;
+  transition: background-color 0.2s ease, color 0.2s ease;
 }
 
 h1,
@@ -127,7 +141,7 @@ h4 {
   height: 8px;
 }
 .scroll-thin::-webkit-scrollbar-thumb {
-  background: color-mix(in srgb, var(--text-faint) 35%, transparent);
+  background: color-mix(in srgb, var(--color-text-faint) 35%, transparent);
   border-radius: 999px;
 }
 .scroll-thin::-webkit-scrollbar-track {
@@ -143,7 +157,7 @@ h4 {
 .skeleton {
   position: relative;
   overflow: hidden;
-  background: color-mix(in srgb, var(--text-faint) 14%, transparent);
+  background: color-mix(in srgb, var(--color-text-faint) 14%, transparent);
 }
 .skeleton::after {
   content: '';
@@ -153,7 +167,7 @@ h4 {
   background: linear-gradient(
     90deg,
     transparent,
-    color-mix(in srgb, var(--surface) 60%, transparent),
+    color-mix(in srgb, var(--color-surface) 60%, transparent),
     transparent
   );
   animation: shimmer 1.6s infinite;

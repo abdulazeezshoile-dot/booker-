@@ -180,6 +180,69 @@ function UserMenu({ user }: { user: User }) {
   );
 }
 
+function MobileNav() {
+  const pathname = usePathname();
+  const router = useRouter();
+  const [open, setOpen] = useState(false);
+
+  const close = () => setOpen(false);
+
+  const go = (href: string) => {
+    setOpen(false);
+    router.push(href);
+  };
+
+  return (
+    <>
+      <button
+        onClick={() => setOpen(true)}
+        className="focus-ring rounded-xl border border-line bg-surface p-2.5 text-muted transition-colors hover:bg-surface-2 dark:text-text-secondary"
+        aria-label="Open menu"
+      >
+        <Menu className="h-4 w-4" />
+      </button>
+
+      {open ? (
+        <div className="fixed inset-0 z-40 lg:hidden">
+          <div className="absolute inset-0 bg-ink/60 backdrop-blur-sm" onClick={close} aria-hidden="true" />
+          <div className="animate-fade-up absolute right-0 top-0 flex h-full w-72 max-w-[85vw] flex-col overflow-y-auto border-l border-line bg-surface p-4 shadow-panel dark:bg-surface-2">
+            <div className="mb-4 flex items-center justify-between">
+              <span className="font-bold text-ink dark:text-text-primary">Menu</span>
+              <button
+                onClick={close}
+                className="focus-ring rounded-lg p-1.5 text-muted hover:bg-surface-2 dark:text-text-secondary dark:hover:bg-surface-2"
+                aria-label="Close menu"
+              >
+                <X className="h-5 w-5" />
+              </button>
+            </div>
+            <nav className="flex-1 space-y-1">
+              {NAV.map((item) => {
+                const active = pathname === item.href || pathname.startsWith(item.href + '/');
+                return (
+                  <button
+                    key={item.href}
+                    onClick={() => go(item.href)}
+                    className={cn(
+                      'flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-medium transition-colors',
+                      active
+                        ? 'bg-brand-50 text-brand-700 dark:bg-brand-500/15 dark:text-brand-300'
+                        : 'text-muted hover:bg-surface-2 hover:text-ink dark:text-text-secondary dark:hover:text-text-primary',
+                    )}
+                  >
+                    <item.icon className="h-4.5 w-4.5" />
+                    {item.label}
+                  </button>
+                );
+              })}
+            </nav>
+          </div>
+        </div>
+      ) : null}
+    </>
+  );
+}
+
 export function AppShell({ user, children }: { user: User; children: ReactNode }) {
   const pathname = usePathname();
 
@@ -231,6 +294,7 @@ export function AppShell({ user, children }: { user: User; children: ReactNode }
           <span className="font-bold text-ink dark:text-text-primary">BizRecord</span>
         </Link>
         <div className="flex items-center gap-2">
+          <MobileNav />
           <ThemeToggle />
           <UserMenu user={user} />
         </div>

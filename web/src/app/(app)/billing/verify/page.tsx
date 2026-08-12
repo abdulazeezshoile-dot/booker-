@@ -86,7 +86,7 @@ function VerifyContent() {
               <p className="text-xs text-muted dark:text-text-secondary">Reference: {result.reference}</p>
             ) : null}
             <Button asChild className="mt-2">
-              <Link href="/">Go to dashboard</Link>
+              <Link href="/onboarding/workspace">Create your workspace</Link>
             </Button>
           </div>
         ) : (

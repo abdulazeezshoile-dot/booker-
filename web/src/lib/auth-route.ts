@@ -12,6 +12,41 @@ import type { User } from '@/lib/types';
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 
+export async function authPublic(
+  path: string,
+  body: unknown,
+): Promise<NextResponse> {
+  try {
+    const response = await fetch(`${apiBaseUrl()}${path}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
+      body: JSON.stringify(body),
+      cache: 'no-store',
+    });
+
+    const data = await response.json().catch(() => null);
+
+    if (!response.ok) {
+      const message =
+        (data && typeof data === 'object' && 'message' in data
+          ? Array.isArray((data as { message: unknown }).message)
+            ? ((data as { message: string[] }).message).join(', ')
+            : String((data as { message: unknown }).message)
+          : null) ||
+        response.statusText ||
+        'Request failed';
+      return NextResponse.json({ message }, { status: response.status });
+    }
+
+    return NextResponse.json(data, { status: response.status || 200 });
+  } catch (err) {
+    return NextResponse.json(
+      { message: err instanceof Error ? err.message : 'Could not reach the API' },
+      { status: 502 },
+    );
+  }
+}
+
 export async function authLogin(
   path: string,
   body: unknown,

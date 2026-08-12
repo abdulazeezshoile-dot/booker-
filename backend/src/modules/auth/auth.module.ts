@@ -8,12 +8,13 @@ import { AuthController } from './auth.controller';
 import { User } from './entities/user.entity';
 import { JwtStrategy } from './strategies/jwt.strategy';
 import { NotificationsModule } from '../notifications/notifications.module';
+import { WorkspaceInvite } from '../workspace/entities/invite.entity';
 
 @Module({
   imports: [
     ConfigModule,
     NotificationsModule,
-    TypeOrmModule.forFeature([User]),
+    TypeOrmModule.forFeature([User, WorkspaceInvite]),
     PassportModule,
     JwtModule.registerAsync({
       inject: [ConfigService],

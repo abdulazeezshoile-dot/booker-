@@ -30,8 +30,15 @@ export class User {
   @Column({ default: 'user' })
   role: 'super_admin' | 'admin' | 'owner' | 'manager' | 'staff' | 'user';
 
-  @Column({ default: 'pro' })
-  plan: 'basic' | 'pro';
+  // A plan is assigned only after a payment provider confirms a subscription.
+  @Column({ nullable: true })
+  plan: 'basic' | 'pro' | null;
+
+  @Column({ default: 'complete', name: 'onboarding_status' })
+  onboardingStatus:
+    | 'pending_email_verification'
+    | 'pending_payment'
+    | 'complete';
 
   @Column({ type: 'timestamp', nullable: true, name: 'trial_start_at' })
   trialStartAt: Date | null;

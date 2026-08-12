@@ -10,12 +10,14 @@ import { Button } from '@/components/ui/Button';
 import { Card } from '@/components/ui/Card';
 import { FieldLabel, Input, Select, Textarea } from '@/components/ui/Field';
 import { Alert, PageLoading } from '@/components/ui/Feedback';
+import { useToast } from '@/components/ui/Toast';
 
 const EXPENSE_CATEGORIES = ['rent', 'utilities', 'salary', 'supplies', 'maintenance', 'other'];
 const PAYMENT_METHODS = ['cash', 'card', 'bank', 'check', 'credit'];
 
 export default function RecordExpensePage() {
   const router = useRouter();
+  const { show } = useToast();
   const { transactionsPath, ready } = useScope();
   const [category, setCategory] = useState('');
   const [amount, setAmount] = useState('');
@@ -51,6 +53,7 @@ export default function RecordExpensePage() {
         category,
         notes: description.trim() || notes.trim() || undefined,
       });
+      show('Expense recorded successfully.');
       router.push('/transactions');
       router.refresh();
     } catch (err) {

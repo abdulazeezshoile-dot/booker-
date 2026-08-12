@@ -11,9 +11,11 @@ import { Card } from '@/components/ui/Card';
 import { FieldLabel, Input, Select, Textarea } from '@/components/ui/Field';
 import { Alert, PageLoading } from '@/components/ui/Feedback';
 import type { Customer, InventoryItem } from '@/lib/types';
+import { useToast } from '@/components/ui/Toast';
 
 export default function RecordDebtPage() {
   const router = useRouter();
+  const { show } = useToast();
   const { inventoryPath, customersPath, transactionsPath, ready } = useScope();
 
   const [inventory, setInventory] = useState<InventoryItem[]>([]);
@@ -87,6 +89,7 @@ export default function RecordDebtPage() {
         status: 'pending',
         notes: notes.trim() || undefined,
       });
+      show('Debt recorded successfully.');
       router.push('/debts');
       router.refresh();
     } catch (err) {

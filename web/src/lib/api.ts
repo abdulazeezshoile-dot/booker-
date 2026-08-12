@@ -68,6 +68,10 @@ async function parse(response: Response) {
       window.location.href = `/login?reason=expired&next=${next}`;
     }
 
+    if (typeof window !== 'undefined' && response.status !== 401) {
+      window.dispatchEvent(new CustomEvent('bizrecord:api-error', { detail: message }));
+    }
+
     throw new ApiError(message, response.status, data);
   }
 

@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useState } from 'react';
 import { useSearchParams, useRouter } from 'next/navigation';
-import { User, Store, Users, Bell, CreditCard, Building2, UserPlus, LogOut, Trash2, Mail, Phone } from 'lucide-react';
+import { User, Store, Users, Bell, CreditCard, Building2, UserPlus, LogOut, Trash2, Mail, Phone, ClipboardList } from 'lucide-react';
 import { cn } from '@/lib/cn';
 import { useWorkspace } from '@/context/WorkspaceContext';
 import { api, errorMessage } from '@/lib/api';
@@ -15,6 +15,8 @@ import { Badge } from '@/components/ui/Badge';
 import { Modal } from '@/components/ui/Modal';
 import { formatDate, initials, toNumber } from '@/lib/format';
 import type { User as UserType } from '@/lib/types';
+import type { AuditLog } from '@/lib/types';
+import { useToast } from '@/components/ui/Toast';
 
 const TABS = [
   { id: 'account', label: 'Account', icon: User },
@@ -22,6 +24,7 @@ const TABS = [
   { id: 'team', label: 'Team', icon: Users },
   { id: 'notifications', label: 'Notifications', icon: Bell },
   { id: 'subscription', label: 'Subscription', icon: CreditCard },
+  { id: 'audit', label: 'Audit log', icon: ClipboardList },
 ];
 
 function AccountTab() {
@@ -106,6 +109,7 @@ function WorkspaceTab() {
   const [branchLocation, setBranchLocation] = useState('');
   const [error, setError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
+  const { show } = useToast();
 
   const canManage = currentWorkspace?.role === 'owner' || currentWorkspace?.role === 'manager';
 
@@ -126,6 +130,7 @@ function WorkspaceTab() {
       setDescription('');
       setCurrentWorkspaceId(created.id);
       await reload();
+      show('Workspace created successfully.');
     } catch (err) {
       setError(errorMessage(err, 'Unable to create workspace'));
     } finally {
@@ -150,6 +155,7 @@ function WorkspaceTab() {
       setBranchName('');
       setBranchLocation('');
       await reload();
+      show('Branch created successfully.');
     } catch (err) {
       setError(errorMessage(err, 'Unable to create branch'));
     } finally {
@@ -301,6 +307,7 @@ function TeamTab() {
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
+  const { show } = useToast();
 
   const canManage = currentWorkspace?.role === 'owner' || currentWorkspace?.role === 'manager';
 
@@ -352,6 +359,7 @@ function TeamTab() {
       await api.post(`/workspaces/${currentWorkspaceId}/team/invite`, { email: email.trim(), role });
       setEmail('');
       setSuccess(`Invitation sent to ${email.trim()}.`);
+      show(`Invitation sent to ${email.trim()}.`);
       load();
     } catch (err) {
       setError(errorMessage(err, 'Unable to send invite'));
@@ -367,6 +375,7 @@ function TeamTab() {
     try {
       await api.delete(`/workspaces/${currentWorkspaceId}/users/${memberId}`);
       setMembers((prev) => prev.filter((m) => m.id !== memberId));
+      show('Team member removed.');
     } catch (err) {
       setError(errorMessage(err, 'Unable to remove member'));
     }
@@ -382,12 +391,12 @@ function TeamTab() {
       {canManage ? (
         <Card>
           <CardHeader title="Invite a member" subtitle="Send an invitation email to join this workspace." />
-          <div className="flex flex-wrap items-end gap-3 p-5">
-            <div className="min-w-[220px] flex-1">
+          <div className="flex flex-col gap-3 p-4 sm:flex-row sm:flex-wrap sm:items-end sm:p-5">
+            <div className="w-full flex-1">
               <FieldLabel label="Email" htmlFor="inviteEmail" />
               <Input id="inviteEmail" type="email" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="teammate@store.com" />
             </div>
-            <div className="w-40">
+            <div className="w-full sm:w-40">
               <FieldLabel label="Role" htmlFor="inviteRole" />
               <Select id="inviteRole" value={role} onChange={(e) => setRole(e.target.value)}>
                 <option value="owner">Owner</option>
@@ -409,17 +418,17 @@ function TeamTab() {
             <p className="px-5 py-4 text-sm text-muted dark:text-text-secondary">No members found.</p>
           ) : (
             members.map((m) => (
-              <div key={m.id} className="flex items-center justify-between px-5 py-3.5">
-                <div className="flex items-center gap-3">
+              <div key={m.id} className="flex items-center justify-between gap-3 px-4 py-3.5 sm:px-5">
+                <div className="flex min-w-0 items-center gap-3">
                   <span className="flex h-9 w-9 items-center justify-center rounded-full bg-brand-50 text-xs font-bold text-brand-700 dark:bg-brand-500/15 dark:text-brand-300">
                     {initials(m.name)}
                   </span>
-                  <div>
+                  <div className="min-w-0">
                     <p className="font-semibold text-ink dark:text-text-primary">{m.name}</p>
-                    <p className="text-xs text-muted dark:text-text-secondary">{m.email}</p>
+                    <p className="truncate text-xs text-muted dark:text-text-secondary">{m.email}</p>
                   </div>
                 </div>
-                <div className="flex items-center gap-2">
+                <div className="flex shrink-0 items-center gap-2">
                   <Badge tone={m.role === 'owner' ? 'brand' : m.role === 'manager' ? 'info' : 'neutral'}>{m.role}</Badge>
                   {canManage && m.role !== 'owner' ? (
                     <button
@@ -456,6 +465,38 @@ function TeamTab() {
         </Card>
       ) : null}
     </div>
+  );
+}
+
+function AuditTab() {
+  const { currentWorkspaceId } = useWorkspace();
+  const [logs, setLogs] = useState<AuditLog[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!currentWorkspaceId) { setLoading(false); return; }
+    api.get<AuditLog[]>(`/workspaces/${currentWorkspaceId}/audit-logs`)
+      .then((data) => setLogs(Array.isArray(data) ? data : []))
+      .catch((err) => setError(errorMessage(err, 'Unable to load audit log')))
+      .finally(() => setLoading(false));
+  }, [currentWorkspaceId]);
+
+  if (loading) return <PageLoading label="Loading audit log…" />;
+  return (
+    <Card>
+      <CardHeader title="Audit log" subtitle="Recent changes made in the selected workspace." />
+      {error ? <Alert tone="danger" className="m-5">{error}</Alert> : null}
+      {!error && logs.length === 0 ? <p className="px-5 py-8 text-sm text-muted dark:text-text-secondary">No recorded activity yet.</p> : null}
+      <div className="divide-y divide-border-soft">
+        {logs.map((log) => (
+          <div key={log.id} className="flex flex-col gap-1 px-5 py-3 sm:flex-row sm:items-center sm:justify-between">
+            <div><p className="font-medium text-ink dark:text-text-primary">{log.action.replace(/\./g, ' ')}</p><p className="text-xs text-muted dark:text-text-secondary">{log.actor?.name || 'Team member'} · {log.entityType}</p></div>
+            <time className="text-xs text-muted dark:text-text-secondary">{formatDate(log.createdAt)}</time>
+          </div>
+        ))}
+      </div>
+    </Card>
   );
 }
 
@@ -610,13 +651,13 @@ export default function SettingsPage() {
     <div>
       <PageHeader title="Settings" subtitle="Manage your account, workspace and team." />
 
-      <div className="mb-6 flex flex-wrap gap-1.5">
+      <div className="mb-6 -mx-1 flex gap-1.5 overflow-x-auto px-1 pb-2 sm:flex-wrap sm:overflow-visible">
         {TABS.map((t) => (
           <button
             key={t.id}
             onClick={() => setTab(t.id)}
             className={cn(
-              'flex items-center gap-2 rounded-full border px-4 py-2 text-sm font-medium transition-colors',
+               'shrink-0 flex items-center gap-2 rounded-full border px-4 py-2 text-sm font-medium transition-colors',
               activeTab.id === t.id
                 ? 'border-brand-500 bg-brand-50 text-brand-700 dark:bg-brand-500/15 dark:text-brand-300'
                 : 'border-line text-muted hover:bg-surface-2 dark:text-text-secondary',
@@ -633,6 +674,7 @@ export default function SettingsPage() {
       {activeTab.id === 'team' ? <TeamTab /> : null}
       {activeTab.id === 'notifications' ? <NotificationsTab /> : null}
       {activeTab.id === 'subscription' ? <SubscriptionTab /> : null}
+      {activeTab.id === 'audit' ? <AuditTab /> : null}
     </div>
   );
 }

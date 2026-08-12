@@ -13,6 +13,7 @@ import { FieldLabel, Input, Select, Textarea } from '@/components/ui/Field';
 import { Alert, PageLoading } from '@/components/ui/Feedback';
 import { cn } from '@/lib/cn';
 import type { Customer, InventoryItem } from '@/lib/types';
+import { useToast } from '@/components/ui/Toast';
 
 const PAYMENT_OPTIONS = [
   { id: 'sale', label: 'Cash sale', paymentMethod: 'cash' },
@@ -21,6 +22,7 @@ const PAYMENT_OPTIONS = [
 
 export default function RecordSalePage() {
   const router = useRouter();
+  const { show } = useToast();
   const { inventoryPath, customersPath, transactionsPath, currentWorkspaceId, activeBranchId, ready } = useScope();
 
   const [inventory, setInventory] = useState<InventoryItem[]>([]);
@@ -121,6 +123,7 @@ export default function RecordSalePage() {
       setCustomers((prev) => [...prev, created]);
       setCustomerId(created.id);
       setNewCustomer({ name: '', phone: '', email: '' });
+      show('Customer created and selected.');
     } catch (err) {
       setError(errorMessage(err, 'Unable to create customer'));
     }
@@ -151,6 +154,10 @@ export default function RecordSalePage() {
       await api.post(transactionsPath, {
         type: saleMode === 'debt' ? 'debt' : 'sale',
         lineItems,
+        // The API DTO also requires transaction-level quantity. The backend
+        // recalculates this from lineItems, but this keeps request validation
+        // satisfied before it reaches that multi-item branch.
+        quantity: lineItems.reduce((sum, item) => sum + item.quantity, 0),
         totalAmount: total,
         paymentMethod: saleMode === 'debt' ? 'credit' : 'cash',
         customerName: selectedCustomer?.name || undefined,
@@ -160,6 +167,7 @@ export default function RecordSalePage() {
         status: saleMode === 'debt' ? 'pending' : 'completed',
         notes: notes.trim() || undefined,
       });
+      show(saleMode === 'debt' ? 'Debt sale saved successfully.' : 'Sale completed successfully.');
       router.push(saleMode === 'debt' ? '/debts' : '/sales');
       router.refresh();
     } catch (err) {
@@ -248,7 +256,7 @@ export default function RecordSalePage() {
           )}
         </div>
 
-        <div className="mt-4 grid grid-cols-2 gap-3 sm:grid-cols-3">
+        <div className="mt-4 grid grid-cols-1 gap-3 sm:grid-cols-3">
           <div>
             <FieldLabel label="Quantity *" htmlFor="quantity" />
             <Input id="quantity" type="number" min={0} value={quantity} onChange={(e) => setQuantity(e.target.value)} placeholder="0" />
@@ -265,7 +273,7 @@ export default function RecordSalePage() {
           </div>
         </div>
 
-        <div className="mt-3 flex items-center justify-between">
+        <div className="mt-3 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
           <div className="text-sm text-muted dark:text-text-secondary">
             {selectedItem ? (
               <>
@@ -296,14 +304,14 @@ export default function RecordSalePage() {
           </div>
           <div className="divide-y divide-border-soft">
             {cart.map((it) => (
-              <div key={it.id} className="flex items-center justify-between py-3">
-                <div>
+              <div key={it.id} className="flex items-start justify-between gap-3 py-3">
+                <div className="min-w-0">
                   <p className="text-sm font-semibold text-ink dark:text-text-primary">{it.name}</p>
                   <p className="text-xs text-muted dark:text-text-secondary">
                     {it.quantity} x {naira(it.sellingPrice)}
                   </p>
                 </div>
-                <div className="flex items-center gap-3">
+                <div className="flex shrink-0 items-center gap-3">
                   <span className="text-sm font-bold text-brand-500">{naira(it.quantity * toNumber(it.sellingPrice) - toNumber(it.discountAmount))}</span>
                   <button
                     onClick={() => setCart((prev) => prev.filter((c) => c.id !== it.id))}
@@ -371,7 +379,7 @@ export default function RecordSalePage() {
         </div>
       </Card>
 
-      <div className="flex items-center gap-3">
+      <div className="flex flex-col-reverse gap-3 sm:flex-row sm:items-center">
         <Button variant="outline" onClick={() => router.back()} disabled={loading}>
           Cancel
         </Button>

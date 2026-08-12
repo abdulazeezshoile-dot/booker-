@@ -249,8 +249,9 @@ export class WorkspaceService {
       throw new NotFoundException('User not found');
     }
 
-    // Subscription gate: creating a workspace requires an active subscription.
-    await this.billingService.assertActiveSubscription(user.id, 'workspace.create');
+    // Subscription gate and plan capacity: Basic has one workspace; Pro has
+    // three plus any purchased workspace-slot add-ons.
+    await this.billingService.assertCanCreateWorkspace(user.id);
 
     if (createWorkspaceDto.parentWorkspaceId) {
       throw new BadRequestException(
@@ -391,7 +392,15 @@ export class WorkspaceService {
         requesterId,
       );
 
-    await this.billingService.assertWorkspaceActive(workspaceId, 'branch.create');
+    const billing = await this.billingService.assertWorkspaceActive(
+      workspaceId,
+      'branch.create',
+    );
+    if (billing.plan !== 'pro') {
+      throw new ForbiddenException(
+        'Branches are available on the Pro plan. Upgrade to create a branch.',
+      );
+    }
 
     let managerUser: User | null = null;
     if (dto.managerUserId) {
@@ -1434,6 +1443,24 @@ export class WorkspaceService {
           branchId: branch?.id || null,
           branchRole,
         };
+      }
+    }
+
+    const billing = await this.billingService.assertWorkspaceActive(
+      workspaceId,
+      'workspace.invite',
+    );
+    if (billing.plan === 'basic') {
+      const [activeMemberCount, pendingInviteCount] = await Promise.all([
+        this.membershipsRepository.count({ where: { workspaceId, isActive: true } }),
+        this.invitesRepository.count({ where: { workspaceId, status: 'pending' } }),
+      ]);
+      // Basic includes its owner plus one invited team member. Pending invites
+      // reserve the same seat so an owner cannot over-invite then accept both.
+      if (activeMemberCount + pendingInviteCount >= 2) {
+        throw new ForbiddenException(
+          'The Basic plan includes one team member. Upgrade to Pro to invite more people.',
+        );
       }
     }
 

@@ -485,6 +485,34 @@ export class BillingService {
     return subscription;
   }
 
+  async assertCanCreateWorkspace(userId: string): Promise<Subscription> {
+    const subscription = await this.assertActiveSubscription(
+      userId,
+      'workspace.create',
+    );
+    const limits = this.computeLimits(this.toPlanKey(subscription.plan), {
+      workspaceSlots: subscription.addonWorkspaceSlots || 0,
+      staffSeats: subscription.addonStaffSeats || 0,
+      whatsappBundles: subscription.addonWhatsappBundles || 0,
+    });
+    const workspaceCount = await this.workspacesRepository
+      .createQueryBuilder('workspace')
+      .where('workspace.created_by = :userId', { userId })
+      .andWhere('workspace.parent_workspace_id IS NULL')
+      .getCount();
+
+    if (workspaceCount >= limits.workspaceLimit) {
+      throw new ForbiddenException({
+        statusCode: 403,
+        code: 'WORKSPACE_LIMIT_REACHED',
+        message: `Your ${subscription.plan} plan allows up to ${limits.workspaceLimit} workspace${limits.workspaceLimit === 1 ? '' : 's'}. Upgrade to add another.`,
+        meta: { workspaceCount, workspaceLimit: limits.workspaceLimit },
+      });
+    }
+
+    return subscription;
+  }
+
   async assertWorkspaceProFeature(
     workspaceId: string,
     feature: string,

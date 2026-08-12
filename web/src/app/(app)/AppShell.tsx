@@ -206,7 +206,7 @@ function MobileNav() {
         <div className="fixed inset-0 z-40 lg:hidden">
           <div className="absolute inset-0 bg-ink/60 backdrop-blur-sm" onClick={close} aria-hidden="true" />
           <div className="animate-fade-up absolute right-0 top-0 flex h-full w-72 max-w-[85vw] flex-col overflow-y-auto border-l border-line bg-surface p-4 shadow-panel dark:bg-surface-2">
-            <div className="mb-4 flex items-center justify-between">
+           <div className="mb-4 flex items-center justify-between">
               <span className="font-bold text-ink dark:text-text-primary">Menu</span>
               <button
                 onClick={close}
@@ -215,6 +215,9 @@ function MobileNav() {
               >
                 <X className="h-5 w-5" />
               </button>
+            </div>
+            <div className="mb-4 border-b border-border-soft pb-4">
+              <WorkspaceSwitcher />
             </div>
             <nav className="flex-1 space-y-1">
               {NAV.map((item) => {
@@ -286,22 +289,22 @@ export function AppShell({ user, children }: { user: User; children: ReactNode }
       </aside>
 
       {/* Mobile top bar */}
-      <div className="no-print sticky top-0 z-20 flex items-center justify-between border-b border-line bg-surface px-4 py-3 lg:hidden dark:bg-surface-2">
+      <div className="no-print sticky top-0 z-20 flex min-w-0 items-center justify-between gap-2 border-b border-line bg-surface px-3 py-3 sm:px-4 lg:hidden dark:bg-surface-2">
         <Link href="/" className="flex items-center gap-2">
           <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-brand-500 text-sm font-bold text-white">
             B
           </span>
-          <span className="font-bold text-ink dark:text-text-primary">BizRecord</span>
+          <span className="hidden font-bold text-ink min-[360px]:inline dark:text-text-primary">BizRecord</span>
         </Link>
-        <div className="flex items-center gap-2">
+        <div className="flex shrink-0 items-center gap-1.5">
           <MobileNav />
           <ThemeToggle />
           <UserMenu user={user} />
         </div>
       </div>
 
-      <main className="flex-1 overflow-x-hidden bg-bg-app dark:bg-bg">
-        <div className="mx-auto w-full max-w-6xl px-4 py-6 sm:px-6 lg:px-8">{children}</div>
+      <main className="min-w-0 flex-1 overflow-x-hidden bg-bg-app dark:bg-bg">
+        <div className="mx-auto w-full max-w-6xl px-3 py-4 sm:px-6 sm:py-6 lg:px-8">{children}</div>
       </main>
     </div>
   );

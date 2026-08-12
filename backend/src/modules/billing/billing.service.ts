@@ -52,8 +52,8 @@ type WorkspaceBillingContext = {
 };
 
 const PLAN_PRICES_NGN: Record<PlanKey, number> = {
-  basic: 2500,
-  pro: 7000,
+  basic: 7000,
+  pro: 15000,
 };
 const YEARLY_DISCOUNT_RATE = 0.2;
 

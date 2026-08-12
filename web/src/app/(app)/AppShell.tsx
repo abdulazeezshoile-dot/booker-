@@ -295,18 +295,42 @@ export function AppShell({ user, children }: { user: User; children: ReactNode }
         </div>
       </aside>
 
-      {/* Mobile top bar */}
-      <div className="no-print sticky top-0 z-20 flex min-w-0 items-center justify-between gap-2 border-b border-line bg-surface px-3 py-3 sm:px-4 lg:hidden dark:bg-surface-2">
-        <Link href="/dashboard" className="flex items-center gap-2">
-          <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-brand-500 text-sm font-bold text-white">
-            B
-          </span>
-          <span className="hidden font-bold text-ink min-[360px]:inline dark:text-text-primary">BizRecord</span>
-        </Link>
-        <div className="flex shrink-0 items-center gap-1.5">
-          <MobileNav user={user} />
+      {/* Mobile app shell: top navigation is easier to scan than a sidebar. */}
+      <header className="no-print sticky top-0 z-20 border-b border-line bg-surface shadow-sm lg:hidden dark:bg-surface-2">
+        <div className="flex min-w-0 items-center justify-between gap-3 px-3 py-3 sm:px-4">
+          <Link href="/dashboard" className="flex shrink-0 items-center gap-2">
+            <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-brand-500 text-sm font-bold text-white">B</span>
+            <span className="font-bold text-ink dark:text-text-primary">BizRecord</span>
+          </Link>
+          <div className="flex shrink-0 items-center gap-1.5">
+            <ThemeToggle />
+            <UserMenu user={user} />
+          </div>
         </div>
-      </div>
+        <div className="border-t border-border-soft px-3 py-2 sm:px-4">
+          <WorkspaceSwitcher />
+        </div>
+        <nav className="scroll-thin flex gap-1 overflow-x-auto border-t border-border-soft px-3 py-2 sm:px-4" aria-label="Main navigation">
+          {NAV.map((item) => {
+            const active = pathname === item.href || pathname.startsWith(`${item.href}/`);
+            return (
+              <Link
+                key={item.href}
+                href={item.href}
+                className={cn(
+                  'flex shrink-0 items-center gap-1.5 rounded-lg px-3 py-2 text-xs font-semibold transition-colors',
+                  active
+                    ? 'bg-brand-50 text-brand-700 dark:bg-brand-500/15 dark:text-brand-300'
+                    : 'text-muted hover:bg-surface-2 dark:text-text-secondary',
+                )}
+              >
+                <item.icon className="h-3.5 w-3.5" />
+                {item.label}
+              </Link>
+            );
+          })}
+        </nav>
+      </header>
 
       <main className="min-w-0 flex-1 overflow-x-hidden bg-bg-app dark:bg-bg">
         <div className="mx-auto w-full max-w-6xl px-3 py-4 sm:px-6 sm:py-6 lg:px-8">{children}</div>

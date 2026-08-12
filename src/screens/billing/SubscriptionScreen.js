@@ -39,11 +39,11 @@ function normalizePlansResponse(payload) {
   }
   return {
     basic: normalized.basic || {
-      pricing: { monthly: 2500, yearly: Math.round(2500 * 12 * 0.8) },
+      pricing: { monthly: 7000, yearly: Math.round(7000 * 12 * 0.8) },
       addons: DEFAULT_ADDONS,
     },
     pro: normalized.pro || {
-      pricing: { monthly: 7000, yearly: Math.round(7000 * 12 * 0.8) },
+      pricing: { monthly: 15000, yearly: Math.round(15000 * 12 * 0.8) },
       addons: DEFAULT_ADDONS,
     },
   };
@@ -278,11 +278,11 @@ export default function SubscriptionScreen({ navigation }) {
         {PLAN_ORDER.map((planKey) => {
           const basePrice = billingCycle === 'yearly'
             ? planKey === 'pro'
-              ? plans?.pro?.pricing?.yearly || Math.round(7000 * 12 * 0.8)
-              : plans?.basic?.pricing?.yearly || Math.round(2500 * 12 * 0.8)
+              ? plans?.pro?.pricing?.yearly || Math.round(15000 * 12 * 0.8)
+              : plans?.basic?.pricing?.yearly || Math.round(7000 * 12 * 0.8)
             : planKey === 'pro'
-              ? plans?.pro?.pricing?.monthly || 7000
-              : plans?.basic?.pricing?.monthly || 2500;
+              ? plans?.pro?.pricing?.monthly || 15000
+              : plans?.basic?.pricing?.monthly || 7000;
 
           return (
             <View

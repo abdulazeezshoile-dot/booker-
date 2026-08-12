@@ -30,7 +30,7 @@ import type { User } from '@/lib/types';
 import { Button } from '@/components/ui/Button';
 
 const NAV = [
-  { href: '/', label: 'Home', icon: LayoutDashboard },
+  { href: '/dashboard', label: 'Home', icon: LayoutDashboard },
   { href: '/sales', label: 'Sales', icon: ShoppingCart },
   { href: '/debts', label: 'Debts', icon: Wallet },
   { href: '/reports', label: 'Analytics', icon: BarChart3 },
@@ -180,7 +180,7 @@ function UserMenu({ user }: { user: User }) {
   );
 }
 
-function MobileNav() {
+function MobileNav({ user }: { user: User }) {
   const pathname = usePathname();
   const router = useRouter();
   const [open, setOpen] = useState(false);
@@ -206,8 +206,11 @@ function MobileNav() {
         <div className="fixed inset-0 z-40 lg:hidden">
           <div className="absolute inset-0 bg-ink/60 backdrop-blur-sm" onClick={close} aria-hidden="true" />
           <div className="animate-fade-up absolute right-0 top-0 flex h-full w-72 max-w-[85vw] flex-col overflow-y-auto border-l border-line bg-surface p-4 shadow-panel dark:bg-surface-2">
-           <div className="mb-4 flex items-center justify-between">
-              <span className="font-bold text-ink dark:text-text-primary">Menu</span>
+            <div className="mb-4 flex items-center justify-between">
+              <Link href="/dashboard" onClick={close} className="flex items-center gap-2 font-bold text-ink dark:text-text-primary">
+                <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-brand-500 text-sm text-white">B</span>
+                BizRecord
+              </Link>
               <button
                 onClick={close}
                 className="focus-ring rounded-lg p-1.5 text-muted hover:bg-surface-2 dark:text-text-secondary dark:hover:bg-surface-2"
@@ -239,6 +242,10 @@ function MobileNav() {
                 );
               })}
             </nav>
+            <div className="mt-4 flex items-center justify-between border-t border-border-soft pt-4">
+              <UserMenu user={user} />
+              <ThemeToggle />
+            </div>
           </div>
         </div>
       ) : null}
@@ -252,7 +259,7 @@ export function AppShell({ user, children }: { user: User; children: ReactNode }
   return (
     <div className="flex min-h-screen">
       <aside className="no-print sticky top-0 hidden h-screen w-64 shrink-0 flex-col border-r border-line bg-surface px-4 py-5 lg:flex dark:bg-surface-2">
-        <Link href="/" className="mb-6 flex items-center gap-2 px-2">
+        <Link href="/dashboard" className="mb-6 flex items-center gap-2 px-2">
           <span className="flex h-9 w-9 items-center justify-center rounded-xl bg-brand-500 text-lg font-bold text-white">
             B
           </span>
@@ -290,16 +297,14 @@ export function AppShell({ user, children }: { user: User; children: ReactNode }
 
       {/* Mobile top bar */}
       <div className="no-print sticky top-0 z-20 flex min-w-0 items-center justify-between gap-2 border-b border-line bg-surface px-3 py-3 sm:px-4 lg:hidden dark:bg-surface-2">
-        <Link href="/" className="flex items-center gap-2">
+        <Link href="/dashboard" className="flex items-center gap-2">
           <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-brand-500 text-sm font-bold text-white">
             B
           </span>
           <span className="hidden font-bold text-ink min-[360px]:inline dark:text-text-primary">BizRecord</span>
         </Link>
         <div className="flex shrink-0 items-center gap-1.5">
-          <MobileNav />
-          <ThemeToggle />
-          <UserMenu user={user} />
+          <MobileNav user={user} />
         </div>
       </div>
 

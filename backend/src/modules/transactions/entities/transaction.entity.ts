@@ -80,7 +80,9 @@ export class Transaction {
   @Column({ nullable: true, name: 'receipt_url' })
   receiptUrl: string;
 
-  @Column({ type: 'jsonb', nullable: true })
+  // Production migration uses snake_case. Without this explicit mapping the
+  // list endpoint selects "lineItems", which does not exist on Railway.
+  @Column({ type: 'jsonb', nullable: true, name: 'line_items' })
   lineItems: any[] | null;
 
   @Column({ name: 'customer_email', type: 'varchar', nullable: true })

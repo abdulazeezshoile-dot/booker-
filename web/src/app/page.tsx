@@ -64,9 +64,10 @@ export default async function MarketingHome() {
             BizRecord
           </Link>
           <nav className="hidden items-center gap-7 text-sm font-semibold md:flex">
-            <a className="focus-ring text-muted transition-colors hover:text-ink dark:text-text-secondary dark:hover:text-text-primary" href="#features">Features</a>
-            <a className="focus-ring text-muted transition-colors hover:text-ink dark:text-text-secondary dark:hover:text-text-primary" href="#workflow">How it works</a>
-            <a className="focus-ring text-muted transition-colors hover:text-ink dark:text-text-secondary dark:hover:text-text-primary" href="#download">Download</a>
+            <Link className="focus-ring text-muted transition-colors hover:text-ink dark:text-text-secondary dark:hover:text-text-primary" href="/pricing">Pricing</Link>
+            <Link className="focus-ring text-muted transition-colors hover:text-ink dark:text-text-secondary dark:hover:text-text-primary" href="/how-it-works">How it works</Link>
+            <Link className="focus-ring text-muted transition-colors hover:text-ink dark:text-text-secondary dark:hover:text-text-primary" href="/privacy">Privacy</Link>
+            <Link className="focus-ring text-muted transition-colors hover:text-ink dark:text-text-secondary dark:hover:text-text-primary" href="/terms">Terms</Link>
           </nav>
           <div className="flex items-center gap-2">
             <Link href={user ? '/dashboard' : '/login'} className="focus-ring hidden rounded-xl px-3 py-2 text-sm font-semibold text-muted transition-colors hover:text-ink sm:block dark:text-text-secondary dark:hover:text-text-primary">
@@ -204,6 +205,9 @@ export default async function MarketingHome() {
           <div className="flex flex-wrap items-center justify-center gap-5">
             <Link href="/login" className="focus-ring hover:text-ink dark:hover:text-text-primary">Sign in</Link>
             <Link href="/register" className="focus-ring hover:text-ink dark:hover:text-text-primary">Register</Link>
+            <Link href="/pricing" className="focus-ring hover:text-ink dark:hover:text-text-primary">Pricing</Link>
+            <Link href="/privacy" className="focus-ring hover:text-ink dark:hover:text-text-primary">Privacy</Link>
+            <Link href="/terms" className="focus-ring hover:text-ink dark:hover:text-text-primary">Terms</Link>
             <a href={PLAY_STORE_URL} target="_blank" rel="noopener noreferrer" className="focus-ring hover:text-ink dark:hover:text-text-primary">Google Play</a>
           </div>
         </div>
@@ -211,3 +215,5 @@ export default async function MarketingHome() {
     </main>
   );
 }
+
+

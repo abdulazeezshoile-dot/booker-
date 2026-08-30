@@ -1,4 +1,4 @@
-'use client';
+﻿'use client';
 
 import { useEffect, useState, type ReactNode } from 'react';
 import Link from 'next/link';
@@ -19,6 +19,7 @@ import {
   Building2,
   Menu,
   X,
+  Lock,
 } from 'lucide-react';
 import { cn } from '@/lib/cn';
 import { useWorkspace } from '@/context/WorkspaceContext';
@@ -54,7 +55,7 @@ function WorkspaceSwitcher() {
       >
         <Store className="h-4 w-4 shrink-0 text-brand-500" />
         <span className="min-w-0 flex-1 truncate text-sm font-semibold">
-          {loading ? 'Loading…' : currentWorkspace?.name || 'Select workspace'}
+          {loading ? 'Loadingâ€¦' : currentWorkspace?.name || 'Select workspace'}
         </span>
         <ChevronDown className="h-4 w-4 shrink-0 text-muted" />
       </button>
@@ -79,6 +80,7 @@ function WorkspaceSwitcher() {
               >
                 <Building2 className="h-4 w-4" />
                 <span className="truncate">{ws.name}</span>
+                {ws.readOnly ? <Lock className="h-4 w-4" /> : null}
               </button>
             ))}
           </div>
@@ -312,3 +314,4 @@ export function AppShell({ user, children }: { user: User; children: ReactNode }
     </div>
   );
 }
+

@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+﻿import React, { useEffect, useState } from 'react';
 import {
   View,
   Text,
@@ -308,7 +308,7 @@ export default function SubscriptionScreen({ navigation }) {
         })}
 
         <AppButton
-          title="Subscribe on the website"
+          title={subscription?.plan === 'pro' ? 'Manage billing' : 'Upgrade to Pro'}
           icon="language"
           onPress={openWebsite}
           style={{ marginTop: 8 }}
@@ -384,3 +384,4 @@ const styles = StyleSheet.create({
   cycleSwitcher: { flexDirection: 'row', gap: 8, marginBottom: 10 },
   cycleChip: { borderWidth: 1, borderRadius: 999, paddingHorizontal: 12, paddingVertical: 7 },
 });
+

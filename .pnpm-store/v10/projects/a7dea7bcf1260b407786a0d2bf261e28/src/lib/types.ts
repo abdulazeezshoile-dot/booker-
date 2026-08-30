@@ -44,6 +44,9 @@ export interface Workspace {
   slug: string;
   parentWorkspaceId?: string | null;
   role?: WorkspaceRole;
+  billingPlan?: Plan;
+  readOnly?: boolean;
+  primaryWorkspaceId?: string | null;
   managerUser?: { id: string; name: string; email: string } | null;
   createdAt: string;
   updatedAt: string;

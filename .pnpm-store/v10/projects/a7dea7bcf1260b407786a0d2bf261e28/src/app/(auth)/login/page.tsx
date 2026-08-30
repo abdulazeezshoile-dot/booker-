@@ -48,7 +48,7 @@ function LoginForm() {
         setError((data as { message?: string })?.message || 'Unable to sign in');
         return;
       }
-      router.push('/');
+      router.push('/dashboard');
       router.refresh();
     } catch {
       setError('Unable to reach the server');

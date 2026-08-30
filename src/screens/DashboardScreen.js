@@ -232,6 +232,17 @@ export default function DashboardScreen({ navigation }) {
             </TouchableOpacity>
           </View>
 
+          {currentWorkspace?.readOnly ? (
+            <Card style={[styles.inviteBanner, { borderColor: `${theme.colors.warning || '#F59E0B'}55`, backgroundColor: theme.colors.card }]}>
+              <View style={{ flex: 1, paddingRight: 12 }}>
+                <Text style={{ color: theme.colors.textPrimary, fontWeight: '700', marginBottom: 4 }}>
+                  Read-only workspace
+                </Text>
+                <Subtle>This workspace is view-only on your current plan. Upgrade to Pro to edit it.</Subtle>
+              </View>
+            </Card>
+          ) : null}
+
           {pendingInviteCount > 0 ? (
             <Card style={[styles.inviteBanner, { borderColor: `${theme.colors.primary}35`, backgroundColor: theme.colors.card }]}>
               <View style={{ flex: 1, paddingRight: 12 }}>
@@ -437,4 +448,3 @@ const styles = StyleSheet.create({
     elevation: 1,
   }
 });
-

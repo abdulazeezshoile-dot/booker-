@@ -55,6 +55,14 @@ const PLAN_PRICES_NGN: Record<PlanKey, number> = {
   basic: 7000,
   pro: 15000,
 };
+
+type WorkspaceAccessSummary = {
+  workspaceId: string;
+  ownerId: string;
+  plan: PlanKey;
+  readOnly: boolean;
+  primaryWorkspaceId: string;
+};
 const YEARLY_DISCOUNT_RATE = 0.2;
 
 @Injectable()
@@ -483,6 +491,66 @@ export class BillingService {
     }
 
     return subscription;
+  }
+
+  private async getPrimaryWorkspaceIdsForOwner(ownerId: string, plan: PlanKey, addonWorkspaceSlots: number) {
+    const limits = this.computeLimits(plan, {
+      workspaceSlots: addonWorkspaceSlots,
+      staffSeats: 0,
+      whatsappBundles: 0,
+    });
+
+    const workspaces = await this.workspacesRepository.find({
+      where: { createdBy: { id: ownerId } },
+      order: { createdAt: 'ASC' },
+    });
+
+    return workspaces.slice(0, limits.workspaceLimit).map((workspace) => workspace.id);
+  }
+
+  async getWorkspaceAccessSummary(workspaceId: string): Promise<WorkspaceAccessSummary> {
+    const workspace = await this.workspacesRepository.findOne({
+      where: { id: workspaceId },
+      relations: ['createdBy'],
+    });
+
+    if (!workspace?.createdBy) {
+      throw new NotFoundException('Workspace not found');
+    }
+
+    const subscription = await this.subscriptionsRepository.findOne({
+      where: { userId: workspace.createdBy.id },
+    });
+
+    const plan = this.toPlanKey(subscription?.plan || workspace.createdBy.plan);
+    const addonWorkspaceSlots = subscription?.addonWorkspaceSlots || 0;
+    const primaryWorkspaceIds = await this.getPrimaryWorkspaceIdsForOwner(
+      workspace.createdBy.id,
+      plan,
+      addonWorkspaceSlots,
+    );
+
+    return {
+      workspaceId,
+      ownerId: workspace.createdBy.id,
+      plan,
+      readOnly: plan === 'basic' && !primaryWorkspaceIds.includes(workspaceId),
+      primaryWorkspaceId: primaryWorkspaceIds[0] || workspace.id,
+    };
+  }
+
+  async assertWorkspaceWritable(workspaceId: string) {
+    const access = await this.getWorkspaceAccessSummary(workspaceId);
+
+    if (access.readOnly) {
+      throw new ForbiddenException({
+        statusCode: 403,
+        code: 'WORKSPACE_READ_ONLY',
+        message:
+          'This workspace is read-only on the Basic plan. Select your main workspace or upgrade to Pro.',
+        meta: access,
+      } as any);
+    }
   }
 
   async assertCanCreateWorkspace(userId: string): Promise<Subscription> {

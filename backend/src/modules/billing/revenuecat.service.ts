@@ -178,6 +178,7 @@ export class RevenueCatWebhookService {
       case 'TRIAL_CONVERSION':
       case 'UNCANCELLATION': {
         if (purchaseKind === 'plan') {
+          const previousPlan = subscription.plan;
           const plan = ENTITLEMENT_TO_PLAN[entitlementIds[0]]
             || inferPlanFromProductId(productId || '', subscription.plan || 'basic');
 
@@ -224,6 +225,15 @@ export class RevenueCatWebhookService {
             user.trialStatus = 'converted';
           }
           await this.usersRepository.save(user);
+
+          if (previousPlan === 'pro' && plan === 'basic') {
+            this.pushService.sendPush({
+              to: user.id,
+              title: 'Workspace access updated',
+              body: 'Your main workspace remains editable. Other workspaces are now read-only.',
+              data: { productId, plan },
+            });
+          }
 
           const payment = this.paymentsRepository.create({
             userId: user.id,

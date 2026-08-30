@@ -1,4 +1,4 @@
-'use client';
+﻿'use client';
 
 import { useCallback, useEffect, useState } from 'react';
 import Link from 'next/link';
@@ -11,6 +11,9 @@ import {
   ArrowLeftRight,
   ShieldCheck,
   AlertTriangle,
+  ArrowUpRight,
+  ArrowDownRight,
+  Lock,
 } from 'lucide-react';
 import { useWorkspace } from '@/context/WorkspaceContext';
 import { useScope } from '@/lib/useScope';
@@ -60,22 +63,35 @@ export default function DashboardPage() {
     load();
   }, [load]);
 
-  const inventoryValue = inventory.reduce((sum, item) => sum + toNumber(item.quantity) * toNumber(item.costPrice), 0);
-  const lowStock = inventory.filter((item) => toNumber(item.quantity) <= toNumber(item.reorderLevel) && toNumber(item.reorderLevel) > 0);
+  const inventoryValue = inventory.reduce(
+    (sum, item) => sum + toNumber(item.quantity) * toNumber(item.costPrice),
+    0,
+  );
+  const lowStock = inventory.filter(
+    (item) =>
+      toNumber(item.quantity) <= toNumber(item.reorderLevel) &&
+      toNumber(item.reorderLevel) > 0,
+  );
   const isOwnerView = currentWorkspace?.role === 'owner';
-
+  const recentSalesTotal = recentSales.reduce(
+    (sum, tx) => sum + toNumber(tx.totalAmount),
+    0,
+  );
+  const recentExpenseTotal = recentExpenses.reduce(
+    (sum, tx) => sum + toNumber(tx.totalAmount),
+    0,
+  );
   const quickActions = [
     { href: '/inventory/new', label: 'Add item', icon: PlusCircle, tone: 'text-brand-500' },
     { href: '/sales/new', label: 'Record sale', icon: ShoppingCart, tone: 'text-ok' },
-    { href: '/transactions/new', label: 'Expense', icon: Receipt, tone: 'text-warn' },
+    { href: '/transactions/new', label: 'Add expense', icon: Receipt, tone: 'text-warn' },
   ];
 
   return (
     <div className="space-y-6">
-      {/* Header row */}
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
-          <h1 className="text-2xl font-bold tracking-tight text-ink dark:text-text-primary">
+          <h1 className="text-2xl font-black tracking-tight text-ink dark:text-text-primary">
             {greeting()}
           </h1>
           <p className="text-sm text-muted dark:text-text-secondary">
@@ -91,6 +107,16 @@ export default function DashboardPage() {
         </Link>
       </div>
 
+      {currentWorkspace?.readOnly ? (
+        <Card className="border-warn/30 bg-warn/10 p-4">
+          <div className="flex items-center gap-3">
+            <Lock className="h-5 w-5 text-warn" />
+            <p className="text-sm font-medium text-ink dark:text-text-primary">
+              This workspace is read-only on your current plan.
+            </p>
+          </div>
+        </Card>
+      ) : null}
       {pendingInviteCount > 0 ? (
         <Card className="flex flex-wrap items-center gap-3 border-brand-500/20 p-4">
           <ShieldCheck className="h-5 w-5 text-brand-500" />
@@ -108,7 +134,6 @@ export default function DashboardPage() {
         </Card>
       ) : null}
 
-      {/* Metrics */}
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
         <MetricCard
           label="Inventory value"
@@ -126,23 +151,42 @@ export default function DashboardPage() {
         />
         <MetricCard
           label="Recent sales"
-          value={loading ? '—' : naira(recentSales.reduce((s, t) => s + toNumber(t.totalAmount), 0))}
+          value={loading ? '—' : naira(recentSalesTotal)}
           hint={`${recentSales.length} recent sale(s)`}
           icon={ShoppingCart}
           tone="ok"
         />
         <MetricCard
           label="Recent expenses"
-          value={loading ? '—' : naira(recentExpenses.reduce((s, t) => s + toNumber(t.totalAmount), 0))}
+          value={loading ? '—' : naira(recentExpenseTotal)}
           hint={`${recentExpenses.length} recent expense(s)`}
           icon={Receipt}
           tone="warn"
         />
       </div>
 
-      {/* Quick actions */}
+      <Card className="p-5">
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div>
+            <p className="text-sm font-semibold text-muted dark:text-text-secondary">Business snapshot</p>
+            <p className="text-2xl font-black tracking-tight text-ink dark:text-text-primary">
+              {loading ? '—' : naira(recentSalesTotal - recentExpenseTotal)}
+            </p>
+            <p className="text-xs text-muted dark:text-text-secondary">Recent sales minus expenses</p>
+          </div>
+          <div className="flex items-center gap-2">
+            <Badge tone="ok">
+              <ArrowUpRight className="mr-1 h-3 w-3" /> Sales
+            </Badge>
+            <Badge tone="warn">
+              <ArrowDownRight className="mr-1 h-3 w-3" /> Expenses
+            </Badge>
+          </div>
+        </div>
+      </Card>
+
       <div>
-        <h2 className="mb-3 text-sm font-medium text-muted dark:text-text-secondary">Quick actions</h2>
+        <h2 className="mb-3 text-sm font-semibold text-muted dark:text-text-secondary">Quick actions</h2>
         <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
           {quickActions.map((action) => (
             <Link
@@ -157,31 +201,29 @@ export default function DashboardPage() {
         </div>
       </div>
 
-      {/* Owner tools */}
       {isOwnerView ? (
         <Card>
           <CardHeader
-            title="Owner Tools"
+            title="Owner tools"
             subtitle="Workspace-wide controls for branch movement and audit visibility."
           />
           <div className="flex flex-wrap gap-2 p-5">
             <Button asChild variant="secondary">
               <Link href="/transactions">
-                <ArrowLeftRight className="h-4 w-4" /> Stock Transfers
+                <ArrowLeftRight className="h-4 w-4" /> Stock transfers
               </Link>
             </Button>
             <Button asChild variant="outline">
               <Link href="/settings?tab=audit">
-                <History className="h-4 w-4" /> Audit Logs
+                <History className="h-4 w-4" /> Audit logs
               </Link>
             </Button>
           </div>
         </Card>
       ) : null}
 
-      {/* Recent activity */}
       <div>
-        <h2 className="mb-3 text-sm font-medium text-muted dark:text-text-secondary">Recent activity</h2>
+        <h2 className="mb-3 text-sm font-semibold text-muted dark:text-text-secondary">Recent activity</h2>
         {loading ? (
           <div className="space-y-3">
             <Skeleton className="h-24 w-full" />
@@ -191,7 +233,7 @@ export default function DashboardPage() {
           <EmptyState
             icon={History}
             title="No recent activity"
-            subtitle="Record your first sale or expense to see activity here!"
+            subtitle="Record your first sale or expense to see activity here."
           />
         ) : (
           <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
@@ -237,3 +279,4 @@ export default function DashboardPage() {
     </div>
   );
 }
+

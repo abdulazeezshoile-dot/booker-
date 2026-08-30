@@ -15,6 +15,7 @@ import { BranchAccessService } from '../workspace/branch-access.service';
 import { StockTransfer } from './entities/stock-transfer.entity';
 import { CreateStockTransferDto } from './dto/create-stock-transfer.dto';
 import { AuditLogService } from '../workspace/audit-log.service';
+import { BillingService } from '../billing/billing.service';
 
 @Injectable()
 export class InventoryService {
@@ -36,6 +37,7 @@ export class InventoryService {
     private readonly pushService: PushService,
     private readonly branchAccessService: BranchAccessService,
     private readonly auditLogService: AuditLogService,
+    private readonly billingService: BillingService,
   ) {}
 
   private async assertInventoryScope(
@@ -86,6 +88,7 @@ export class InventoryService {
       userId,
       'inventory.manage',
     );
+    await this.billingService.assertWorkspaceWritable(workspaceId);
 
     const item = this.itemsRepository.create({
       ...createItemDto,
@@ -206,6 +209,7 @@ export class InventoryService {
       userId,
       'inventory.manage',
     );
+    await this.billingService.assertWorkspaceWritable(workspaceId);
     const item = await this.getItem(workspaceId, branchId, itemId, userId);
     Object.assign(item, updateItemDto);
     const updatedItem = await this.itemsRepository.save(item);
@@ -261,6 +265,7 @@ export class InventoryService {
       userId,
       'inventory.manage',
     );
+    await this.billingService.assertWorkspaceWritable(workspaceId);
     const item = await this.getItem(workspaceId, branchId, itemId, userId);
 
     // Preserve transaction history while allowing item deletion.
@@ -348,6 +353,7 @@ export class InventoryService {
       workspaceId,
       userId,
     );
+    await this.billingService.assertWorkspaceWritable(workspaceId);
 
     if (dto.sourceBranchId === dto.destinationBranchId) {
       throw new NotFoundException(

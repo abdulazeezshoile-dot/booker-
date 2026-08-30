@@ -8,6 +8,7 @@ import { CreateCustomerDto } from './dto/create-customer.dto';
 import { UpdateCustomerDto } from './dto/update-customer.dto';
 import { BranchAccessService } from '../workspace/branch-access.service';
 import { AuditLogService } from '../workspace/audit-log.service';
+import { BillingService } from '../billing/billing.service';
 
 @Injectable()
 export class CustomerService {
@@ -20,6 +21,7 @@ export class CustomerService {
     private branchRepository: Repository<Branch>,
     private readonly branchAccessService: BranchAccessService,
     private readonly auditLogService: AuditLogService,
+    private readonly billingService: BillingService,
   ) {}
 
   private async assertCustomerScope(
@@ -64,6 +66,7 @@ export class CustomerService {
       userId,
       'customers.manage',
     );
+    await this.billingService.assertWorkspaceWritable(workspaceId);
     const customer = this.customerRepository.create({
       ...dto,
       workspace,
@@ -139,6 +142,7 @@ export class CustomerService {
     userId: string,
     dto: UpdateCustomerDto,
   ) {
+    await this.billingService.assertWorkspaceWritable(workspaceId);
     const customer = await this.findOne(workspaceId, branchId, id, userId);
     if (!customer) throw new NotFoundException('Customer not found');
     Object.assign(customer, dto);
@@ -161,6 +165,7 @@ export class CustomerService {
     id: string,
     userId: string,
   ) {
+    await this.billingService.assertWorkspaceWritable(workspaceId);
     const customer = await this.findOne(workspaceId, branchId, id, userId);
     if (!customer) throw new NotFoundException('Customer not found');
     await this.customerRepository.remove(customer);

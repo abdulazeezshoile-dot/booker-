@@ -11,6 +11,7 @@ import { Workspace } from '../workspace/entities/workspace.entity';
 import { User } from '../auth/entities/user.entity';
 import { Transaction } from '../transactions/entities/transaction.entity';
 import { NotificationsModule } from '../notifications/notifications.module';
+import { BillingModule } from '../billing/billing.module';
 import { WorkspaceModule } from '../workspace/workspace.module';
 import { Branch } from '../workspace/entities/branch.entity';
 import { StockTransfer } from './entities/stock-transfer.entity';
@@ -27,6 +28,7 @@ import { StockTransfer } from './entities/stock-transfer.entity';
     ]),
     NotificationsModule,
     WorkspaceModule,
+    BillingModule,
   ],
   providers: [InventoryService],
   controllers: [

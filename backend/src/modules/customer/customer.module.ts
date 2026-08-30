@@ -9,11 +9,13 @@ import {
 } from './customer.controller';
 import { Branch } from '../workspace/entities/branch.entity';
 import { WorkspaceModule } from '../workspace/workspace.module';
+import { BillingModule } from '../billing/billing.module';
 
 @Module({
   imports: [
     TypeOrmModule.forFeature([Customer, Workspace, Branch]),
     WorkspaceModule,
+    BillingModule,
   ],
   providers: [CustomerService],
   controllers: [CustomerController, WorkspaceCustomerController],

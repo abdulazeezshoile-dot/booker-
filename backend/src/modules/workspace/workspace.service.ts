@@ -312,27 +312,40 @@ export class WorkspaceService {
       order: { updatedAt: 'DESC' },
     });
 
-    return memberships
-      .filter((membership) => !membership.workspace.parentWorkspaceId)
-      .map((membership) => ({
-        id: membership.workspace.id,
-        name: membership.workspace.name,
-        description: membership.workspace.description,
-        logo: membership.workspace.logo,
-        status: membership.workspace.status,
-        slug: membership.workspace.slug,
-        parentWorkspaceId: membership.workspace.parentWorkspaceId,
-        createdAt: membership.workspace.createdAt,
-        updatedAt: membership.workspace.updatedAt,
-        role: membership.role,
-        managerUser: membership.workspace.managerUser
-          ? {
-              id: membership.workspace.managerUser.id,
-              name: membership.workspace.managerUser.name,
-              email: membership.workspace.managerUser.email,
-            }
-          : null,
-      }));
+    const rootMemberships = memberships.filter(
+      (membership) => !membership.workspace.parentWorkspaceId,
+    );
+
+    const accessSummaries = await Promise.all(
+      rootMemberships.map((membership) =>
+        this.billingService
+          .getWorkspaceAccessSummary(membership.workspaceId)
+          .catch(() => null),
+      ),
+    );
+
+    return rootMemberships.map((membership, index) => ({
+      id: membership.workspace.id,
+      name: membership.workspace.name,
+      description: membership.workspace.description,
+      logo: membership.workspace.logo,
+      status: membership.workspace.status,
+      slug: membership.workspace.slug,
+      parentWorkspaceId: membership.workspace.parentWorkspaceId,
+      createdAt: membership.workspace.createdAt,
+      updatedAt: membership.workspace.updatedAt,
+      role: membership.role,
+      managerUser: membership.workspace.managerUser
+        ? {
+            id: membership.workspace.managerUser.id,
+            name: membership.workspace.managerUser.name,
+            email: membership.workspace.managerUser.email,
+          }
+        : null,
+      billingPlan: accessSummaries[index]?.plan || 'basic',
+      readOnly: accessSummaries[index]?.readOnly || false,
+      primaryWorkspaceId: accessSummaries[index]?.primaryWorkspaceId || null,
+    }));
   }
 
   async getWorkspace(workspaceId: string, requesterId?: string) {

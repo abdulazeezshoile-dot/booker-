@@ -14,6 +14,7 @@ import { DebtReminderService } from './debt-reminder.service';
 import { WorkspaceModule } from '../workspace/workspace.module';
 import { Branch } from '../workspace/entities/branch.entity';
 import { NotificationsModule } from '../notifications/notifications.module';
+import { BillingModule } from '../billing/billing.module';
 
 @Module({
   imports: [
@@ -26,6 +27,7 @@ import { NotificationsModule } from '../notifications/notifications.module';
     ]),
     WorkspaceModule,
     NotificationsModule,
+    BillingModule,
   ],
   providers: [TransactionsService, ReceiptService, DebtReminderService],
   controllers: [TransactionsController, WorkspaceTransactionsController],

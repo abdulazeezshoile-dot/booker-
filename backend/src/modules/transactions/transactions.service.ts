@@ -19,6 +19,7 @@ import { CreateTransactionDto } from './dto/create-transaction.dto';
 import { ReturnDebtDto } from './dto/return-debt.dto';
 import { EmailQueueService } from '../notifications/email-queue.service';
 import { EmailTemplateService } from '../notifications/email-template.service';
+import { BillingService } from '../billing/billing.service';
 
 @Injectable()
 export class TransactionsService {
@@ -38,6 +39,7 @@ export class TransactionsService {
     private readonly emailTemplateService: EmailTemplateService,
     private readonly branchAccessService: BranchAccessService,
     private readonly auditLogService: AuditLogService,
+    private readonly billingService: BillingService,
   ) {}
 
   private async assertTransactionScope(
@@ -100,6 +102,7 @@ export class TransactionsService {
       userId,
       permission,
     );
+    await this.billingService.assertWorkspaceWritable(workspaceId);
 
     let item: InventoryItem | null = null;
     let quantity = Number(createTransactionDto.quantity || 0);
@@ -433,6 +436,7 @@ export class TransactionsService {
       userId,
       'debts.manage',
     );
+    await this.billingService.assertWorkspaceWritable(workspaceId);
     const transaction = await this.getTransaction(
       workspaceId,
       branchId,
@@ -478,6 +482,7 @@ export class TransactionsService {
       userId,
       'debts.manage',
     );
+    await this.billingService.assertWorkspaceWritable(workspaceId);
     const transaction = await this.getTransaction(
       workspaceId,
       branchId,

@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useCallback, useState } from 'react';
 import {
   View,
   Text,
@@ -13,17 +13,164 @@ import {
 import { useTheme } from '../theme/ThemeContext';
 import { useWorkspace } from '../context/WorkspaceContext';
 import { api } from '../api/client';
-import { Card, Title, SkeletonBlock, EmptyState } from '../components/UI';
+import { cacheCustomers, getCachedCustomers, setIdMapping, upsertLocalDebt, upsertLocalTransaction } from '../storage/offlineStore';
+import { Card, Title, SkeletonBlock } from '../components/UI';
 import { MaterialIcons } from '@expo/vector-icons';
+import { useCustomerSelect } from '../context/CustomerSelectContext';
+import { useFocusEffect } from '@react-navigation/native';
+
+const isPendingSyncStatus = (status) => {
+  const value = String(status || '').toLowerCase();
+  return value === 'pending_create' || value === 'pending_update' || value === 'failed' || value === 'conflict';
+};
+
+const mergeByIdentity = (primary = [], secondary = []) => {
+  const map = new Map();
+  [...(Array.isArray(primary) ? primary : []), ...(Array.isArray(secondary) ? secondary : [])].forEach((item) => {
+    const key = String(item?.id ?? item?.server_id ?? item?.local_id ?? '');
+    if (!key || key === 'undefined' || key === 'null') return;
+
+    const existing = map.get(key);
+    if (!existing) {
+      map.set(key, item);
+      return;
+    }
+
+    const existingPending = isPendingSyncStatus(existing?.sync_status);
+    const incomingPending = isPendingSyncStatus(item?.sync_status);
+    if (incomingPending && !existingPending) {
+      map.set(key, item);
+      return;
+    }
+    if (existingPending && !incomingPending) {
+      return;
+    }
+
+    const existingTime = new Date(existing?.updatedAt || existing?.updated_at || existing?.createdAt || 0).getTime();
+    const incomingTime = new Date(item?.updatedAt || item?.updated_at || item?.createdAt || 0).getTime();
+    if (incomingTime >= existingTime) {
+      map.set(key, item);
+    }
+  });
+  return Array.from(map.values());
+};
 
 export default function RecordDebtScreen({ navigation }) {
   const themeContext = useTheme();
   const theme = themeContext.theme;
-  const { currentWorkspaceId, queueAction } = useWorkspace();
+  const { currentWorkspaceId, activeBranchId, queueAction } = useWorkspace();
+  const { selectedCustomer } = useCustomerSelect();
 
-  const [customerId, setCustomerId] = useState('');
   const [customers, setCustomers] = useState([]);
-    if (loading) {
+  const [phone, setPhone] = useState('');
+  const [amount, setAmount] = useState('');
+  const [dueInDays, setDueInDays] = useState('7');
+  const [notes, setNotes] = useState('');
+  const [loading, setLoading] = useState(false);
+  const customerPath = activeBranchId
+    ? `/workspaces/${currentWorkspaceId}/branches/${activeBranchId}/customers`
+    : `/workspaces/${currentWorkspaceId}/customers`;
+  const transactionPath = activeBranchId
+    ? `/workspaces/${currentWorkspaceId}/branches/${activeBranchId}/transactions`
+    : `/workspaces/${currentWorkspaceId}/transactions`;
+  const scopeId = activeBranchId || currentWorkspaceId;
+
+  const loadCustomers = useCallback(async () => {
+    if (!currentWorkspaceId) {
+      setCustomers([]);
+      return;
+    }
+    try {
+      const cached = await getCachedCustomers(scopeId);
+      const data = await api.get(customerPath);
+      const list = Array.isArray(data) ? data : [];
+      setCustomers(mergeByIdentity(list, cached));
+      cacheCustomers(scopeId, list).catch(() => null);
+    } catch {
+      const cached = await getCachedCustomers(scopeId);
+      setCustomers(Array.isArray(cached) ? cached : []);
+    }
+  }, [currentWorkspaceId, customerPath, scopeId]);
+
+  useFocusEffect(
+    useCallback(() => {
+      loadCustomers();
+    }, [loadCustomers]),
+  );
+
+  const handleSubmit = async () => {
+    if (!currentWorkspaceId) {
+      Alert.alert('Workspace required', 'Please select a workspace first');
+      return;
+    }
+    if (!amount || parseFloat(amount) <= 0) {
+      Alert.alert('Validation Error', 'Please enter a valid amount');
+      return;
+    }
+    const dueDate = dueInDays
+      ? new Date(Date.now() + parseInt(dueInDays, 10) * 86400000).toISOString()
+      : null;
+    const nowIso = new Date().toISOString();
+    const selectedCustomerRecord = customers.find((c) => c.id === selectedCustomer?.id);
+    const payload = {
+      type: 'debt',
+      quantity: 1,
+      unitPrice: parseFloat(amount),
+      totalAmount: parseFloat(amount),
+      phone: phone || selectedCustomer?.phone || undefined,
+      customerEmail: selectedCustomerRecord?.email || undefined,
+      dueDate: dueDate || undefined,
+      notes: notes || undefined,
+      customerId: selectedCustomer?.id || undefined,
+      customerName: selectedCustomerRecord?.name || selectedCustomer?.name || undefined,
+      status: 'pending',
+      createdAt: nowIso,
+      updatedAt: nowIso,
+    };
+
+    setLoading(true);
+    const localId = `local_debt_${Date.now()}_${Math.random().toString(16).slice(2)}`;
+    try {
+      const result = await api.post(transactionPath, payload);
+      await upsertLocalDebt({
+        local_id: localId,
+        server_id: result?.id ? String(result.id) : null,
+        workspace_server_id: scopeId,
+        data: { ...payload, ...(result || {}), id: result?.id ?? localId, local_id: localId },
+        sync_status: 'synced',
+      }, scopeId);
+      await upsertLocalTransaction({
+        local_id: localId,
+        server_id: result?.id ? String(result.id) : null,
+        workspace_server_id: scopeId,
+        data: { ...payload, ...(result || {}), id: result?.id ?? localId, local_id: localId },
+        sync_status: 'synced',
+      }, scopeId);
+      if (result?.id) {
+        await setIdMapping('debt', localId, String(result.id));
+      }
+      Alert.alert('Success', 'Debt recorded', [
+        { text: 'OK', onPress: () => navigation.goBack() },
+      ]);
+    } catch (err) {
+      if (queueAction) {
+        await queueAction({
+          method: 'post',
+          path: transactionPath,
+          body: payload,
+        });
+        Alert.alert('Offline', 'Debt queued and will sync once online', [
+          { text: 'OK', onPress: () => navigation.goBack() },
+        ]);
+      } else {
+        Alert.alert('Error', err?.message || 'Unable to record debt');
+      }
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  if (loading) {
       return (
         <View style={{ flex: 1, backgroundColor: theme.colors.background, justifyContent: 'center', alignItems: 'center', padding: 24 }}>
           <SkeletonBlock height={28} width="60%" style={{ marginBottom: 18, borderRadius: 8 }} />
@@ -65,15 +212,15 @@ export default function RecordDebtScreen({ navigation }) {
             <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 8 }}>
               <TouchableOpacity
                 style={{ flex: 1, borderWidth: 1, borderColor: theme.colors.border, borderRadius: 8, padding: 10, backgroundColor: theme.colors.card }}
-                onPress={() => navigation.navigate('CustomerListScreen', { onSelect: (customer) => { setCustomerId(customer.id); navigation.goBack(); } })}
+                onPress={() => navigation.navigate('CustomerListScreen', { selectMode: true })}
                 accessibilityLabel="Select customer"
                 activeOpacity={0.7}
               >
-                <Text style={{ color: customerId ? theme.colors.textPrimary : theme.colors.textSecondary }}>
-                  {customerId ? (customers.find(c => c.id === customerId)?.name || 'Select customer') : 'Select customer'}
+                <Text style={{ color: selectedCustomer?.id ? theme.colors.textPrimary : theme.colors.textSecondary }}>
+                  {selectedCustomer?.id ? (customers.find(c => c.id === selectedCustomer.id)?.name || selectedCustomer.name || 'Select customer') : 'Select customer'}
                 </Text>
               </TouchableOpacity>
-              <TouchableOpacity onPress={() => navigation.navigate('AddCustomerScreen')} style={{ marginLeft: 8 }} accessibilityLabel="Add customer" activeOpacity={0.7}>
+              <TouchableOpacity onPress={() => navigation.navigate('AddCustomerScreen', { selectAfterCreate: true })} style={{ marginLeft: 8 }} accessibilityLabel="Add customer" activeOpacity={0.7}>
                 <MaterialIcons name="person-add" size={24} color={theme.colors.primary} />
               </TouchableOpacity>
             </View>

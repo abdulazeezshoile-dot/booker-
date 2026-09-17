@@ -3,6 +3,10 @@ import { AppState, Platform } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { api, setAuthToken } from '../api/client';
 import * as Crypto from 'expo-crypto';
+import {
+  registerPushTokenWithBackend,
+  unregisterPushTokenWithBackend,
+} from '../services/pushNotifications';
 
 import * as biometric from '../services/biometric';
 
@@ -11,19 +15,29 @@ const STORAGE_KEY = '@booker:auth';
 const OFFLINE_PWHASH_KEY = '@booker:offlinePwHash';
 const OFFLINE_PWHASH_META_KEY = '@booker:offlinePwMeta';
 const OFFLINE_MAX_DAYS = 7;
+const AUTO_LOCK_DELAY_MS = 3 * 60 * 1000;
+const isLikelyOfflineError = (err) => !!err?.message && /network|offline|timeout|fetch/i.test(err.message);
 
 export const AuthProvider = ({ children }) => {
   const [user, setUser] = useState(null);
   const [token, setToken] = useState(null);
   const [loading, setLoading] = useState(true);
   const [requiresReAuth, setRequiresReAuth] = useState(false);
+  const [pauseAutoLock, setPauseAutoLock] = useState(false);
   const appStateRef = useRef(AppState.currentState);
+  const backgroundedAtRef = useRef(null);
   const userRef = useRef(null);
+  const pauseAutoLockRef = useRef(false);
 
   // Keep userRef in sync so AppState listener can access it without stale closure
   useEffect(() => {
     userRef.current = user;
   }, [user]);
+
+  // Keep pauseAutoLockRef in sync with pauseAutoLock state
+  useEffect(() => {
+    pauseAutoLockRef.current = pauseAutoLock;
+  }, [pauseAutoLock]);
 
   const saveAuth = async (newToken, userData, password) => {
     try {
@@ -49,11 +63,56 @@ export const AuthProvider = ({ children }) => {
     setToken(newToken);
     setUser(userData);
     setRequiresReAuth(false);
+
+    registerPushTokenWithBackend(api).catch(() => null);
+  };
+
+  const tryOfflinePasswordAuth = async (email, password) => {
+    const normalizedEmail = String(email || '').trim().toLowerCase();
+    const storedAuthRaw = await AsyncStorage.getItem(STORAGE_KEY);
+    const storedHash = await AsyncStorage.getItem(OFFLINE_PWHASH_KEY);
+    const metaRaw = await AsyncStorage.getItem(OFFLINE_PWHASH_META_KEY);
+
+    if (!storedAuthRaw || !storedHash || !metaRaw) {
+      throw new Error('Offline sign-in is not available yet for this account.');
+    }
+
+    const storedAuth = JSON.parse(storedAuthRaw);
+    const meta = JSON.parse(metaRaw);
+    const storedEmail = String(meta?.email || storedAuth?.user?.email || '').trim().toLowerCase();
+
+    if (!storedEmail || storedEmail !== normalizedEmail) {
+      throw new Error('Offline sign-in is only available for the last account used on this device.');
+    }
+
+    if (!meta?.updatedAt || Date.now() - meta.updatedAt >= OFFLINE_MAX_DAYS * 86400000) {
+      throw new Error('Offline sign-in expired. Please connect to the internet.');
+    }
+
+    const hash = await Crypto.digestStringAsync(
+      Crypto.CryptoDigestAlgorithm.SHA256,
+      password + ':' + storedEmail
+    );
+
+    if (hash !== storedHash) {
+      throw new Error('Incorrect password (offline).');
+    }
+
+    setAuthToken(storedAuth?.token || null);
+    setToken(storedAuth?.token || null);
+    setUser(storedAuth?.user || null);
+    setRequiresReAuth(false);
+    return storedAuth?.user || null;
   };
 
   const clearAuth = async () => {
+    await unregisterPushTokenWithBackend(api).catch(() => null);
     try {
-      await AsyncStorage.removeItem(STORAGE_KEY);
+      await AsyncStorage.multiRemove([
+        STORAGE_KEY,
+        OFFLINE_PWHASH_KEY,
+        OFFLINE_PWHASH_META_KEY,
+      ]);
     } catch (error) {
       // ignore
     }
@@ -67,27 +126,39 @@ export const AuthProvider = ({ children }) => {
     const response = await api.post('/auth/register', registerDto);
     // Support both register response shapes:
     // 1) { access_token, user } -> save directly
-    // 2) user object only -> login immediately
+    // 2) verification-first response -> stay signed out until OTP is confirmed
+    // 3) user object only -> login immediately
     if (response?.access_token && response?.user) {
       await saveAuth(response.access_token, response.user);
       return response.user;
     }
 
-    if (!response?.requiresEmailVerification) {
+    const requiresEmailVerification =
+      response?.requiresEmailVerification === true ||
+      response?.emailVerified === false;
+
+    if (!requiresEmailVerification) {
       await login(registerDto.email, registerDto.password);
     }
-    return response;
+    return {
+      ...response,
+      requiresEmailVerification,
+      email: response?.email || registerDto.email,
+    };
   };
 
   const login = async (email, password) => {
-    const response = await api.post('/auth/login', { email, password });
-    const { access_token, user: userData } = response;
-    await saveAuth(access_token, userData, password);
-    // If trial expired, return upgradeRequired flag
-    if (userData.upgradeRequired) {
-      throw new Error('Your free trial has ended. Please upgrade your plan to continue.');
+    try {
+      const response = await api.post('/auth/login', { email, password });
+      const { access_token, user: userData } = response;
+      await saveAuth(access_token, userData, password);
+      return userData;
+    } catch (err) {
+      if (isLikelyOfflineError(err)) {
+        return tryOfflinePasswordAuth(email, password);
+      }
+      throw err;
     }
-    return userData;
   };
 
   // Re-authenticate using the stored user's email + a new password entry
@@ -99,7 +170,7 @@ export const AuthProvider = ({ children }) => {
       return await login(userRef.current.email, password);
     } catch (err) {
       // If offline, try offline fallback
-      if (err?.message && /network|offline|timeout/i.test(err.message)) {
+      if (isLikelyOfflineError(err)) {
         // Check offline hash
         const salt = userRef.current.email;
         const hash = await Crypto.digestStringAsync(
@@ -137,6 +208,7 @@ export const AuthProvider = ({ children }) => {
           setAuthToken(storedToken);
           setToken(storedToken);
           setUser(storedUser);
+          registerPushTokenWithBackend(api).catch(() => null);
           // Any restored session must re-authenticate before accessing app data.
           setRequiresReAuth(true);
         }
@@ -175,7 +247,16 @@ export const AuthProvider = ({ children }) => {
       const prev = appStateRef.current;
       appStateRef.current = nextState;
       const wasBackgrounded = typeof prev === 'string' && /(inactive|background)/.test(prev);
-      if (wasBackgrounded && nextState === 'active' && userRef.current) {
+      if (nextState === 'inactive' || nextState === 'background') {
+        backgroundedAtRef.current = Date.now();
+      }
+      // Skip auto-lock if pauseAutoLock is enabled (e.g., during payment flow)
+      // Use ref to avoid recreating listener when pauseAutoLock changes
+      if (wasBackgrounded && nextState === 'active' && userRef.current && !pauseAutoLockRef.current) {
+        const elapsed = backgroundedAtRef.current ? Date.now() - backgroundedAtRef.current : 0;
+        if (elapsed < AUTO_LOCK_DELAY_MS) {
+          return;
+        }
         setRequiresReAuth(true);
         // Try biometric unlock if Android and opted in
         if (
@@ -199,6 +280,7 @@ export const AuthProvider = ({ children }) => {
   return (
     <AuthContext.Provider value={{
       user, token, loading, requiresReAuth, login, logout, register, unlockSession,
+      pauseAutoLock, setPauseAutoLock,
       setBiometricOptIn: biometric.setBiometricOptIn,
       getBiometricOptIn: biometric.getBiometricOptIn,
       isBiometricAvailable: biometric.isBiometricAvailable,

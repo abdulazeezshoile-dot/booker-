@@ -15,11 +15,13 @@ import { MaterialIcons } from '@expo/vector-icons';
 import { useTheme } from '../theme/ThemeContext';
 import { useWorkspace } from '../context/WorkspaceContext';
 import { api } from '../api/client';
+import * as offlineStore from '../storage/offlineStore';
+import { showSuccessToast } from '../utils/toast';
 
 const AddItemScreen = function({ navigation }) {
   const themeContext = useTheme();
   const theme = themeContext.theme;
-  const { currentWorkspaceId, queueAction } = useWorkspace();
+  const { currentWorkspaceId, activeBranchId, currentBranch, queueAction } = useWorkspace();
 
   const [name, setName] = useState('');
   const [quantity, setQuantity] = useState('1');
@@ -29,6 +31,11 @@ const AddItemScreen = function({ navigation }) {
   const [location, setLocation] = useState('');
   const [minStock, setMinStock] = useState('1');
   const [loading, setLoading] = useState(false);
+
+  const inventoryPath = activeBranchId
+    ? `/workspaces/${currentWorkspaceId}/branches/${activeBranchId}/inventory`
+    : `/workspaces/${currentWorkspaceId}/inventory`;
+  const inventoryScopeLabel = currentBranch?.name || 'workspace inventory';
 
   const handleAddItem = async function() {
     if (!name.trim() || !category.trim() || !location.trim()) {
@@ -57,12 +64,24 @@ const AddItemScreen = function({ navigation }) {
 
     setLoading(true);
 
-    try {
-      await api.post(`/workspaces/${currentWorkspaceId}/inventory`, payload);
+    const localId = `local_item_${Date.now()}_${Math.random().toString(16).slice(2)}`;
 
-      Platform.OS === 'web'
-        ? window.alert('Item added successfully!')
-        : Alert.alert('Success', 'Item added successfully!');
+    try {
+      const result = await api.post(inventoryPath, payload);
+      // Upsert into local SQLite so InventoryScreen shows the new item immediately
+      const serverId = result?.id ? String(result.id) : null;
+      offlineStore.upsertLocalInventory({
+        local_id: localId,
+        server_id: serverId,
+        workspace_server_id: activeBranchId || currentWorkspaceId,
+        data: { ...payload, id: result?.id ?? localId },
+        sync_status: 'synced',
+      }, activeBranchId || currentWorkspaceId).catch(() => null);
+      if (serverId) {
+        offlineStore.setIdMapping('inventory', localId, serverId).catch(() => null);
+      }
+
+      showSuccessToast(`Item added successfully to ${inventoryScopeLabel}!`);
 
       setName('');
       setQuantity('1');
@@ -72,15 +91,36 @@ const AddItemScreen = function({ navigation }) {
       setLocation('');
       setMinStock('1');
     } catch (err) {
-      if (queueAction) {
-        await queueAction({
-          method: 'post',
-          path: `/workspaces/${currentWorkspaceId}/inventory`,
-          body: payload,
+      const isOffline = !err?.response;
+      if (isOffline) {
+        // Write to local SQLite immediately so the item appears while offline
+        const localItem = {
+          local_id: localId,
+          server_id: null,
+          workspace_server_id: activeBranchId || currentWorkspaceId,
+          data: payload,
+          sync_status: 'pending_create',
+        };
+        await offlineStore.upsertLocalInventory(localItem, activeBranchId || currentWorkspaceId);
+        // Queue to the structured outbox for background sync
+        await offlineStore.addSyncOutboxAction({
+          action_id: localId,
+          action_type: 'create_inventory',
+          entity_type: 'inventory',
+          entity_local_id: localId,
+          workspace_ref: activeBranchId || currentWorkspaceId,
+          payload,
         });
         Platform.OS === 'web'
-          ? window.alert('Item queued and will sync once online')
-          : Alert.alert('Offline', 'Item queued and will sync once online');
+          ? window.alert(`Item saved locally to ${inventoryScopeLabel} and will sync once online`)
+          : Alert.alert('Offline', `Item saved locally to ${inventoryScopeLabel} and will sync once online`);
+        setName('');
+        setQuantity('1');
+        setCostPrice('0');
+        setSellingPrice('0');
+        setCategory('');
+        setLocation('');
+        setMinStock('1');
       } else {
         Alert.alert('Error', err?.message || 'Unable to add item');
       }

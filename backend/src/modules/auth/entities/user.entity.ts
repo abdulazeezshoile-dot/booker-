@@ -4,10 +4,11 @@ import {
   Column,
   CreateDateColumn,
   UpdateDateColumn,
-  ManyToMany,
-  JoinTable,
+  OneToMany,
 } from 'typeorm';
 import { Workspace } from '../../workspace/entities/workspace.entity';
+import { WorkspaceMembership } from '../../workspace/entities/workspace-membership.entity';
+import { UserPushToken } from '../../notifications/entities/user-push-token.entity';
 
 @Entity('users')
 export class User {
@@ -29,53 +30,74 @@ export class User {
   @Column({ default: 'user' })
   role: 'super_admin' | 'admin' | 'owner' | 'manager' | 'staff' | 'user';
 
-  @Column({ default: 'pro' })
-  plan: 'basic' | 'pro';
+  // A plan is assigned only after a payment provider confirms a subscription.
+  @Column({ nullable: true })
+  plan: 'basic' | 'pro' | null;
 
-  @Column({ type: 'timestamp', nullable: true })
+  @Column({ default: 'complete', name: 'onboarding_status' })
+  onboardingStatus:
+    | 'pending_email_verification'
+    | 'pending_payment'
+    | 'complete';
+
+  @Column({ type: 'timestamp', nullable: true, name: 'trial_start_at' })
   trialStartAt: Date | null;
 
-  @Column({ type: 'timestamp', nullable: true })
+  @Column({ type: 'timestamp', nullable: true, name: 'trial_ends_at' })
   trialEndsAt: Date | null;
 
-  @Column({ default: 'active' })
+  @Column({ default: 'active', name: 'trial_status' })
   trialStatus: 'active' | 'expired' | 'converted';
 
-  @Column({ default: true })
+  @Column({ default: true, name: 'isActive' })
   isActive: boolean;
 
-  @Column({ default: false })
+  @Column({ default: false, name: 'email_verified' })
   emailVerified: boolean;
 
-  @Column({ type: 'varchar', nullable: true })
+  @Column({ type: 'varchar', nullable: true, name: 'email_verification_code' })
   emailVerificationCode: string | null;
 
-  @Column({ type: 'timestamp', nullable: true })
+  @Column({
+    type: 'timestamp',
+    nullable: true,
+    name: 'email_verification_expires_at',
+  })
   emailVerificationExpiresAt: Date | null;
 
-  @Column({ type: 'timestamp', nullable: true })
+  @Column({
+    type: 'timestamp',
+    nullable: true,
+    name: 'email_verification_last_sent_at',
+  })
   emailVerificationLastSentAt: Date | null;
 
-  @Column({ type: 'varchar', nullable: true })
+  @Column({ type: 'varchar', nullable: true, name: 'password_reset_code' })
   passwordResetCode: string | null;
 
-  @Column({ type: 'timestamp', nullable: true })
+  @Column({
+    type: 'timestamp',
+    nullable: true,
+    name: 'password_reset_expires_at',
+  })
   passwordResetExpiresAt: Date | null;
 
-  @Column({ type: 'timestamp', nullable: true })
+  @Column({
+    type: 'timestamp',
+    nullable: true,
+    name: 'password_reset_last_sent_at',
+  })
   passwordResetLastSentAt: Date | null;
 
-  @ManyToMany(() => Workspace, (workspace) => workspace.users)
-  @JoinTable({
-    name: 'workspace_users',
-    joinColumn: { name: 'user_id', referencedColumnName: 'id' },
-    inverseJoinColumn: { name: 'workspace_id', referencedColumnName: 'id' },
-  })
-  workspaces: Workspace[];
+  @OneToMany(() => WorkspaceMembership, (membership) => membership.user)
+  memberships: WorkspaceMembership[];
 
-  @CreateDateColumn()
+  @OneToMany(() => UserPushToken, (pushToken) => pushToken.user)
+  pushTokens: UserPushToken[];
+
+  @CreateDateColumn({ name: 'createdAt' })
   createdAt: Date;
 
-  @UpdateDateColumn()
+  @UpdateDateColumn({ name: 'updatedAt' })
   updatedAt: Date;
 }

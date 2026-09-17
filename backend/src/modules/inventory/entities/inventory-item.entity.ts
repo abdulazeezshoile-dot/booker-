@@ -8,7 +8,9 @@ import {
   JoinColumn,
 } from 'typeorm';
 import { Workspace } from '../../workspace/entities/workspace.entity';
+import { Branch } from '../../workspace/entities/branch.entity';
 import { User } from '../../auth/entities/user.entity';
+import { StockTransfer } from './stock-transfer.entity';
 
 @Entity('inventory_items')
 export class InventoryItem {
@@ -27,13 +29,25 @@ export class InventoryItem {
   @Column({ type: 'decimal', precision: 10, scale: 2 })
   quantity: number;
 
-  @Column({ type: 'decimal', precision: 10, scale: 2 })
+  @Column({ type: 'decimal', precision: 10, scale: 2, name: 'costPrice' })
   costPrice: number;
 
-  @Column({ type: 'decimal', precision: 10, scale: 2, nullable: true })
+  @Column({
+    type: 'decimal',
+    precision: 10,
+    scale: 2,
+    nullable: true,
+    name: 'sellingPrice',
+  })
   sellingPrice: number;
 
-  @Column({ type: 'decimal', precision: 10, scale: 2, default: 0 })
+  @Column({
+    type: 'decimal',
+    precision: 10,
+    scale: 2,
+    default: 0,
+    name: 'reorderLevel',
+  })
   reorderLevel: number;
 
   @Column({ nullable: true })
@@ -48,17 +62,32 @@ export class InventoryItem {
   @Column({ default: 'available' })
   status: 'available' | 'out_of_stock' | 'discontinued';
 
-  @ManyToOne(() => Workspace, (workspace) => workspace.items, { onDelete: 'CASCADE' })
+  @ManyToOne(() => Workspace, (workspace) => workspace.items, {
+    onDelete: 'CASCADE',
+  })
   @JoinColumn({ name: 'workspace_id' })
   workspace: Workspace;
+
+  @Column({ name: 'workspace_id', type: 'uuid', nullable: true })
+  workspaceId: string | null;
+
+  @ManyToOne(() => Branch, (branch) => branch.items, {
+    onDelete: 'CASCADE',
+    nullable: true,
+  })
+  @JoinColumn({ name: 'branch_id' })
+  branch: Branch | null;
+
+  @Column({ name: 'branch_id', type: 'uuid', nullable: true })
+  branchId: string | null;
 
   @ManyToOne(() => User)
   @JoinColumn({ name: 'created_by' })
   createdBy: User;
 
-  @CreateDateColumn()
+  @CreateDateColumn({ name: 'createdAt' })
   createdAt: Date;
 
-  @UpdateDateColumn()
+  @UpdateDateColumn({ name: 'updatedAt' })
   updatedAt: Date;
 }

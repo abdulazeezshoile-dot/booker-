@@ -1,5 +1,5 @@
-import React, { useState } from 'react';
-import { Modal } from 'react-native';
+import React, { useEffect, useState } from 'react';
+import { Modal, Linking } from 'react-native';
 import {
   View,
   Text,
@@ -12,8 +12,10 @@ import {
 import { Card, AppButton } from '../../components/UI';
 import { useAuth } from '../../context/AuthContext';
 import { useTheme } from '../../theme/ThemeContext';
+import { showSuccessToast } from '../../utils/toast';
+import { getRegisterUrl } from '../../services/websiteUrl';
 
-export default function LoginScreen({ navigation }) {
+export default function LoginScreen({ navigation, route }) {
   const { login, setBiometricOptIn, isBiometricAvailable, getBiometricOptIn } = useAuth();
   const themeContext = useTheme();
   const theme = themeContext.theme;
@@ -26,11 +28,20 @@ export default function LoginScreen({ navigation }) {
   const isCompact = width < 380;
   const formWidth = Math.min(width - (isCompact ? 24 : 36), 460);
 
+  useEffect(() => {
+    const flashMessage = route?.params?.flashMessage;
+    if (flashMessage) {
+      showSuccessToast(flashMessage);
+      navigation.setParams({ flashMessage: undefined });
+    }
+  }, [navigation, route?.params?.flashMessage]);
+
   const handleLogin = async () => {
     setError(null);
     setLoading(true);
     try {
       await login(email.trim(), password);
+      showSuccessToast('Signed in successfully');
       // After successful login, prompt for biometric opt-in (Android only)
       if (
         Platform.OS === 'android' &&
@@ -43,7 +54,10 @@ export default function LoginScreen({ navigation }) {
       const message = err?.message || 'Unable to sign in';
       setError(message);
       if (/email not verified/i.test(message)) {
-        navigation.navigate('VerifyEmail', { email: email.trim() });
+        navigation.replace('VerifyEmail', {
+          email: email.trim(),
+          fromLogin: true,
+        });
       }
     } finally {
       setLoading(false);
@@ -102,10 +116,10 @@ export default function LoginScreen({ navigation }) {
           />
           <AppButton
             title="Create an account"
-            onPress={() => navigation.navigate('Register')}
+            onPress={() => Linking.openURL(getRegisterUrl())}
             variant="secondary"
             style={{ marginTop: 10 }}
-            accessibilityLabel="Create an account"
+            accessibilityLabel="Create an account on the website"
           />
         </Card>
       </KeyboardAvoidingView>

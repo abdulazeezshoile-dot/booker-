@@ -1,12 +1,27 @@
-import { Controller, Get, UseGuards, Request, Post, Body, Headers } from '@nestjs/common';
+import {
+  Controller,
+  Get,
+  UseGuards,
+  Request,
+  Post,
+  Body,
+  Headers,
+  Param,
+  Req,
+} from '@nestjs/common';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { BillingService } from './billing.service';
+import { RevenueCatWebhookService } from './revenuecat.service';
 import { InitiateCheckoutDto } from './dto/initiate-checkout.dto';
 import { VerifyPaymentDto } from './dto/verify-payment.dto';
+import { VerifyGooglePurchaseDto } from './dto/verify-google-purchase.dto';
 
 @Controller('billing')
 export class BillingController {
-  constructor(private billingService: BillingService) {}
+  constructor(
+    private billingService: BillingService,
+    private revenuecatWebhookService: RevenueCatWebhookService,
+  ) {}
 
   @UseGuards(JwtAuthGuard)
   @Get('plans')
@@ -27,15 +42,38 @@ export class BillingController {
   }
 
   @UseGuards(JwtAuthGuard)
+  @Get('workspaces/:workspaceId/context')
+  async getWorkspaceContext(
+    @Request() req,
+    @Param('workspaceId') workspaceId: string,
+  ) {
+    return this.billingService.getWorkspaceBillingContextForUser(
+      req.user.sub,
+      workspaceId,
+    );
+  }
+
+  @UseGuards(JwtAuthGuard)
   @Post('checkout')
   async checkout(@Request() req, @Body() dto: InitiateCheckoutDto) {
-    return this.billingService.initiateCheckout(req.user.sub, dto);
+    return this.billingService.initializeCheckout(req.user.sub, dto);
   }
 
   @UseGuards(JwtAuthGuard)
   @Post('verify')
   async verify(@Request() req, @Body() dto: VerifyPaymentDto) {
-    return this.billingService.verifyPayment(dto.reference, req.user.sub);
+    return this.billingService.verifyFlutterwavePayment(
+      req.user.sub,
+      dto.reference,
+    );
+  }
+
+  @Post('webhook/flutterwave')
+  async flutterwaveWebhook(
+    @Body() payload: Record<string, any>,
+    @Headers('verif-hash') verifHash?: string,
+  ) {
+    return this.billingService.handleFlutterwaveWebhook(payload, verifHash);
   }
 
   @Post('webhook/paystack')
@@ -43,6 +81,59 @@ export class BillingController {
     @Body() payload: Record<string, any>,
     @Headers('x-paystack-signature') signature?: string,
   ) {
-    return this.billingService.handleWebhook(payload, signature);
+    // Paystack webhook endpoint removed — Paystack deprecated in favor of
+    // Google Play Billing. Keep endpoint around to avoid breaking integrators,
+    // but return a deprecation response.
+    return {
+      received: true,
+      message:
+        'Paystack webhook handling deprecated. Please migrate to Google Play Billing.',
+    };
+  }
+
+  @UseGuards(JwtAuthGuard)
+  @Post('verify/google')
+  async verifyGooglePurchase(
+    @Request() req,
+    @Body() dto: VerifyGooglePurchaseDto,
+  ) {
+    return this.billingService.verifyGooglePurchase(req.user.sub, dto);
+  }
+
+  @UseGuards(JwtAuthGuard)
+  @Post('workspaces/:workspaceId/remind-owner')
+  async remindWorkspaceOwner(
+    @Request() req,
+    @Param('workspaceId') workspaceId: string,
+  ) {
+    return this.billingService.remindWorkspaceOwner(req.user.sub, workspaceId);
+  }
+
+  // Google Play RTDN (Pub/Sub push) endpoint — Google will POST notifications here.
+  @Post('webhook/google')
+  async googleWebhook(
+    @Body() payload: Record<string, any>,
+    @Headers('authorization') authorization?: string,
+    @Headers('x-google-webhook-secret') googleWebhookSecret?: string,
+    @Headers('x-webhook-secret') webhookSecret?: string,
+  ) {
+    return this.billingService.handleGoogleWebhook(payload, {
+      authorization,
+      sharedSecret: googleWebhookSecret || webhookSecret,
+    });
+  }
+
+  @Post('webhook/revenuecat')
+  async revenuecatWebhook(
+    @Req() req: any,
+    @Headers('authorization') authorization?: string,
+    @Headers('x-revenuecat-signature') revenuecatSignature?: string,
+  ) {
+    const rawBody = req.rawBody || JSON.stringify(req.body);
+    return this.revenuecatWebhookService.handleWebhook(
+      rawBody,
+      revenuecatSignature,
+      authorization,
+    );
   }
 }

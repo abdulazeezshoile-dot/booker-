@@ -1,6 +1,12 @@
-import { Injectable, Logger, OnModuleDestroy, OnModuleInit } from '@nestjs/common';
+import {
+  Injectable,
+  Logger,
+  OnModuleDestroy,
+  OnModuleInit,
+} from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { EmailService } from './email.service';
+import { AlertingService } from './alerting.service';
 
 type EmailJob = {
   id: string;
@@ -21,13 +27,21 @@ export class EmailQueueService implements OnModuleInit, OnModuleDestroy {
   constructor(
     private configService: ConfigService,
     private emailService: EmailService,
+    private alertingService: AlertingService,
   ) {}
 
   onModuleInit() {
-    const intervalMs = Number(this.configService.get<string>('EMAIL_QUEUE_POLL_INTERVAL_MS') || 1000);
+    const intervalMs = Number(
+      this.configService.get<string>('EMAIL_QUEUE_POLL_INTERVAL_MS') || 1000,
+    );
     this.timer = setInterval(() => {
       this.processNext().catch((err) => {
-        this.logger.error(`Queue processor error: ${err?.message || err}`);
+        const message = err instanceof Error ? err.message : String(err);
+        this.logger.error(`Queue processor error: ${message}`);
+        void this.alertingService.notifyError(
+          'Email queue processor error',
+          message,
+        );
       });
     }, intervalMs);
   }
@@ -56,7 +70,9 @@ export class EmailQueueService implements OnModuleInit, OnModuleDestroy {
 
     this.processing = true;
 
-    const maxAttempts = Number(this.configService.get<string>('EMAIL_QUEUE_MAX_ATTEMPTS') || 5);
+    const maxAttempts = Number(
+      this.configService.get<string>('EMAIL_QUEUE_MAX_ATTEMPTS') || 5,
+    );
     const job = this.queue.shift();
     if (!job) {
       this.processing = false;
@@ -70,7 +86,15 @@ export class EmailQueueService implements OnModuleInit, OnModuleDestroy {
       if (job.attempts < maxAttempts) {
         this.queue.push(job);
       } else {
-        this.logger.error(`Email job ${job.id} failed after ${job.attempts} attempts: ${err?.message || err}`);
+        const message =
+          err instanceof Error ? err.message : String(err ?? 'Error');
+        this.logger.error(
+          `Email job ${job.id} failed after ${job.attempts} attempts: ${message}`,
+        );
+        void this.alertingService.notifyError(
+          `Email job ${job.id} failed`,
+          message,
+        );
       }
     } finally {
       this.processing = false;

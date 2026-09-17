@@ -1,14 +1,25 @@
-import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
+import {
+  BadRequestException,
+  Injectable,
+  NotFoundException,
+} from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
+import { IsNull, Repository } from 'typeorm';
+import { isUUID } from 'class-validator';
 import { Transaction } from './entities/transaction.entity';
 import { Workspace } from '../workspace/entities/workspace.entity';
 import { User } from '../auth/entities/user.entity';
 import { InventoryItem } from '../inventory/entities/inventory-item.entity';
-
+import { Branch } from '../workspace/entities/branch.entity';
+import { BranchAccessService } from '../workspace/branch-access.service';
+import { AuditLogService } from '../workspace/audit-log.service';
 
 import { ReceiptService } from './receipt.service';
 import { CreateTransactionDto } from './dto/create-transaction.dto';
+import { ReturnDebtDto } from './dto/return-debt.dto';
+import { EmailQueueService } from '../notifications/email-queue.service';
+import { EmailTemplateService } from '../notifications/email-template.service';
+import { BillingService } from '../billing/billing.service';
 
 @Injectable()
 export class TransactionsService {
@@ -21,65 +32,246 @@ export class TransactionsService {
     private usersRepository: Repository<User>,
     @InjectRepository(InventoryItem)
     private itemsRepository: Repository<InventoryItem>,
+    @InjectRepository(Branch)
+    private branchesRepository: Repository<Branch>,
     private receiptService: ReceiptService,
+    private readonly emailQueueService: EmailQueueService,
+    private readonly emailTemplateService: EmailTemplateService,
+    private readonly branchAccessService: BranchAccessService,
+    private readonly auditLogService: AuditLogService,
+    private readonly billingService: BillingService,
   ) {}
+
+  private async assertTransactionScope(
+    workspaceId: string,
+    branchId: string | null,
+    userId: string,
+    permission:
+      | 'sales.view'
+      | 'sales.create'
+      | 'debts.view'
+      | 'debts.manage'
+      | 'inventory.manage'
+      | 'reports.view',
+  ) {
+    if (branchId) {
+      const access = await this.branchAccessService.assertBranchPermission(
+        workspaceId,
+        branchId,
+        userId,
+        permission,
+      );
+      return {
+        workspace: access.branch.workspace,
+        branch: access.branch,
+        user: access.user,
+      };
+    }
+
+    const ownerAccess = await this.branchAccessService.assertWorkspaceOwnerLike(
+      workspaceId,
+      userId,
+    );
+    return {
+      workspace: ownerAccess.workspace,
+      branch: null,
+      user: ownerAccess.user,
+    };
+  }
 
   async createTransaction(
     createTransactionDto: CreateTransactionDto,
     workspaceId: string,
+    branchId: string | null,
     userId: string,
   ) {
-    const workspace = await this.workspacesRepository.findOne({
-      where: { id: workspaceId },
-    });
+    const normalizedType = String(
+      createTransactionDto.type || '',
+    ).toLowerCase();
+    const minimumRole = normalizedType === 'sale' ? 'staff' : 'manager';
+    const permission =
+      normalizedType === 'sale'
+        ? 'sales.create'
+        : normalizedType === 'debt'
+          ? 'debts.manage'
+          : 'inventory.manage';
 
-    if (!workspace) {
-      throw new NotFoundException('Workspace not found');
-    }
-
-    const user = await this.usersRepository.findOne({ where: { id: userId } });
-
-    if (!user) {
-      throw new NotFoundException('User not found');
-    }
+    const { branch, user, workspace } = await this.assertTransactionScope(
+      workspaceId,
+      branchId,
+      userId,
+      permission,
+    );
+    await this.billingService.assertWorkspaceWritable(workspaceId);
 
     let item: InventoryItem | null = null;
     let quantity = Number(createTransactionDto.quantity || 0);
     let unitPrice = Number(createTransactionDto.unitPrice || 0);
     let totalAmount = Number(createTransactionDto.totalAmount || 0);
+    let discountAmount = Number(createTransactionDto.discountAmount || 0);
+    let lineItems = createTransactionDto.lineItems || [];
+    const isInventoryReducingTransaction =
+      normalizedType === 'sale' || normalizedType === 'debt';
 
-    if (createTransactionDto.type === 'sale') {
-      if (!createTransactionDto.itemId) {
-        throw new BadRequestException('itemId is required for sale transactions');
+    if (isInventoryReducingTransaction) {
+      // Support either single-item flows (legacy) or multi-item `lineItems`.
+      if (lineItems && lineItems.length > 0) {
+        // multi-item sale: validate each line
+        let sumQuantity = 0;
+        let sumGross = 0;
+        let sumDiscount = 0;
+        let sumTotal = 0;
+
+        const savedLineItems: any[] = [];
+
+        for (const li of lineItems) {
+          if (!li.itemId || !isUUID(li.itemId)) {
+            throw new BadRequestException(
+              'Each line item must include a valid itemId',
+            );
+          }
+
+          const it = await this.itemsRepository.findOne({
+            where: branchId
+              ? { id: li.itemId, workspaceId, branchId }
+              : { id: li.itemId, workspaceId, branchId: IsNull() },
+          });
+          if (!it)
+            throw new NotFoundException(
+              'One of the line items was not found in this workspace',
+            );
+
+          const liQty = Number(li.quantity || 0);
+          if (!liQty || liQty <= 0)
+            throw new BadRequestException(
+              'Each line item quantity must be > 0',
+            );
+
+          const currentStock = Number(it.quantity || 0);
+          if (liQty > currentStock)
+            throw new BadRequestException(
+              `Insufficient stock for item ${it.name}. Available: ${currentStock}`,
+            );
+
+          const liUnit = Number(li.unitPrice || it.sellingPrice || 0);
+          const liGross = liUnit * liQty;
+          const liDiscount = Number(li.discountAmount || 0);
+          if (liDiscount < 0)
+            throw new BadRequestException('discountAmount cannot be negative');
+          if (liDiscount > liGross)
+            throw new BadRequestException(
+              'discountAmount cannot exceed gross for a line item',
+            );
+
+          const liTotal = liGross - liDiscount;
+
+          // persist updated stock
+          it.quantity = Number((currentStock - liQty).toFixed(2));
+          await this.itemsRepository.save(it);
+
+          savedLineItems.push({
+            itemId: it.id,
+            name: it.name,
+            sku: it.sku,
+            quantity: liQty,
+            unitPrice: liUnit,
+            gross: liGross,
+            discountAmount: liDiscount,
+            total: liTotal,
+          });
+
+          sumQuantity += liQty;
+          sumGross += liGross;
+          sumDiscount += liDiscount;
+          sumTotal += liTotal;
+        }
+
+        quantity = sumQuantity;
+        unitPrice = 0;
+        discountAmount = sumDiscount;
+        totalAmount = sumTotal;
+        // store line items for receipt generation
+        lineItems = savedLineItems;
+        // keep `item` null for multi-item transaction
+        item = null;
+      } else {
+        // legacy single-item flow (unchanged)
+        if (!createTransactionDto.itemId) {
+          throw new BadRequestException(
+            'itemId is required for stock-based sale and debt transactions',
+          );
+        }
+        if (!isUUID(createTransactionDto.itemId)) {
+          throw new BadRequestException(
+            'itemId must be a valid inventory item id',
+          );
+        }
+
+        item = await this.itemsRepository.findOne({
+          where: branchId
+            ? {
+                id: createTransactionDto.itemId,
+                workspaceId,
+                branchId,
+              }
+            : {
+                id: createTransactionDto.itemId,
+                workspaceId,
+                branchId: IsNull(),
+              },
+          relations: ['workspace', 'branch'],
+        });
+
+        if (!item) {
+          throw new NotFoundException(
+            'Selected item not found in this workspace',
+          );
+        }
+
+        quantity = Number(createTransactionDto.quantity || 0);
+        if (!quantity || quantity <= 0) {
+          throw new BadRequestException('quantity must be greater than zero');
+        }
+
+        const currentStock = Number(item.quantity || 0);
+        if (quantity > currentStock) {
+          throw new BadRequestException(
+            `Insufficient stock. Available: ${currentStock}`,
+          );
+        }
+
+        unitPrice = Number(
+          createTransactionDto.unitPrice || item.sellingPrice || 0,
+        );
+        const grossAmount = unitPrice * quantity;
+
+        if (discountAmount < 0) {
+          throw new BadRequestException('discountAmount cannot be negative');
+        }
+        if (discountAmount > grossAmount) {
+          throw new BadRequestException(
+            `discountAmount cannot exceed gross amount (${grossAmount})`,
+          );
+        }
+
+        // Prefer explicit totalAmount from client when provided (defensive),
+        // otherwise compute from gross and discount. This avoids double-discount
+        // when clients pre-adjust unitPrice and still send discountAmount.
+        const providedTotal = Number(createTransactionDto.totalAmount || 0);
+        totalAmount =
+          providedTotal > 0
+            ? providedTotal
+            : discountAmount > 0
+              ? grossAmount - discountAmount
+              : grossAmount;
+
+        if (totalAmount < 0) {
+          throw new BadRequestException('totalAmount cannot be negative');
+        }
+
+        item.quantity = Number((currentStock - quantity).toFixed(2));
+        await this.itemsRepository.save(item);
       }
-
-      item = await this.itemsRepository.findOne({
-        where: {
-          id: createTransactionDto.itemId,
-          workspace: { id: workspaceId },
-        },
-        relations: ['workspace'],
-      });
-
-      if (!item) {
-        throw new NotFoundException('Selected item not found in this workspace');
-      }
-
-      quantity = Number(createTransactionDto.quantity || 0);
-      if (!quantity || quantity <= 0) {
-        throw new BadRequestException('quantity must be greater than zero');
-      }
-
-      const currentStock = Number(item.quantity || 0);
-      if (quantity > currentStock) {
-        throw new BadRequestException(`Insufficient stock. Available: ${currentStock}`);
-      }
-
-      unitPrice = Number(item.sellingPrice || 0);
-      totalAmount = unitPrice * quantity;
-
-      item.quantity = Number((currentStock - quantity).toFixed(2));
-      await this.itemsRepository.save(item);
     }
 
     let transaction: Transaction = this.transactionsRepository.create({
@@ -89,45 +281,110 @@ export class TransactionsService {
       quantity,
       unitPrice,
       totalAmount,
+      discountAmount,
+      lineItems: lineItems && lineItems.length ? lineItems : undefined,
+      customerEmail: createTransactionDto.customerEmail || null,
       category: createTransactionDto.category,
       paymentMethod: createTransactionDto.paymentMethod,
       status: createTransactionDto.status || 'pending',
       customerName: createTransactionDto.customerName,
       phone: createTransactionDto.phone,
       notes: createTransactionDto.notes,
-      ...(createTransactionDto.dueDate && { dueDate: new Date(createTransactionDto.dueDate) }),
+      ...(createTransactionDto.dueDate && {
+        dueDate: new Date(createTransactionDto.dueDate),
+      }),
       workspace,
+      workspaceId,
+      branch: branch || undefined,
+      branchId: branch?.id || null,
       createdBy: user,
     });
 
     transaction = await this.transactionsRepository.save(transaction);
 
     // Generate and upload receipt for sales
-    if (transaction && transaction.type === 'sale') {
+    if (
+      transaction &&
+      (transaction.type === 'sale' || transaction.type === 'debt')
+    ) {
       try {
-        const receiptUrl = await this.receiptService.generateAndUploadReceipt(transaction);
+        const receiptUrl =
+          await this.receiptService.generateAndUploadReceipt(transaction);
         transaction.receiptUrl = receiptUrl;
         await this.transactionsRepository.save(transaction);
-      } catch (err) {
+        // enqueue receipt email to customer if email provided
+        try {
+          const toEmail = (transaction.customerEmail || '').trim();
+          if (toEmail && toEmail.includes('@')) {
+            const html = this.emailTemplateService.invoiceEmail(
+              transaction,
+              receiptUrl,
+            );
+            this.emailQueueService.enqueue({
+              to: toEmail,
+              subject: `Your receipt - ${transaction.referenceNumber || transaction.id}`,
+              text: `View your receipt: ${receiptUrl}`,
+              html,
+            });
+          }
+        } catch (e) {
+          // non-fatal
+        }
+      } catch {
         // Optionally log error, but don't block transaction creation
-        // console.error('Failed to generate/upload receipt:', err);
       }
     }
+    await this.auditLogService.log({
+      workspaceId,
+      branchId: branchId || undefined,
+      actorUserId: userId,
+      action: `transaction.create.${transaction.type}`,
+      entityType: 'transaction',
+      entityId: transaction.id,
+      metadata: {
+        type: transaction.type,
+        totalAmount: transaction.totalAmount,
+        status: transaction.status,
+      },
+    });
     return transaction;
   }
 
   async getTransactions(
     workspaceId: string,
+    branchId: string | null,
+    userId: string,
     skip = 0,
     take = 20,
     type?: string,
   ) {
+    await this.assertTransactionScope(
+      workspaceId,
+      branchId,
+      userId,
+      type === 'debt' ? 'debts.view' : 'sales.view',
+    );
     const query = this.transactionsRepository
       .createQueryBuilder('transaction')
       .where('transaction.workspace_id = :workspaceId', { workspaceId });
 
+    if (branchId) {
+      query.andWhere('transaction.branch_id = :branchId', { branchId });
+    } else {
+      query.andWhere('transaction.branch_id IS NULL');
+    }
+
     if (type) {
-      query.andWhere('transaction.type = :type', { type });
+      // Special-case: when requesting `sale` transactions, include
+      // debts that have been completed — these should appear as paid
+      // sales in the UI. Keep the original `debt` filter behavior.
+      if (type === 'sale') {
+        query.andWhere(
+          "(transaction.type = 'sale' OR (transaction.type = 'debt' AND transaction.status = 'completed'))",
+        );
+      } else {
+        query.andWhere('transaction.type = :type', { type });
+      }
     }
 
     return await query
@@ -137,10 +394,26 @@ export class TransactionsService {
       .getMany();
   }
 
-  async getTransaction(transactionId: string) {
+  async getTransaction(
+    workspaceId: string,
+    branchId: string | null,
+    transactionId: string,
+    userId: string,
+  ) {
+    await this.assertTransactionScope(
+      workspaceId,
+      branchId,
+      userId,
+      'sales.view',
+    );
+    if (!isUUID(String(transactionId || ''))) {
+      throw new BadRequestException('Invalid transaction id');
+    }
     const transaction = await this.transactionsRepository.findOne({
-      where: { id: transactionId },
-      relations: ['workspace', 'createdBy', 'item'],
+      where: branchId
+        ? { id: transactionId, workspaceId, branchId }
+        : { id: transactionId, workspaceId, branchId: IsNull() },
+      relations: ['workspace', 'branch', 'createdBy', 'item'],
     });
 
     if (!transaction) {
@@ -151,24 +424,260 @@ export class TransactionsService {
   }
 
   async updateTransactionStatus(
+    workspaceId: string,
+    branchId: string | null,
     transactionId: string,
     status: 'pending' | 'completed' | 'cancelled',
+    userId: string,
   ) {
-    const transaction = await this.getTransaction(transactionId);
+    await this.assertTransactionScope(
+      workspaceId,
+      branchId,
+      userId,
+      'debts.manage',
+    );
+    await this.billingService.assertWorkspaceWritable(workspaceId);
+    const transaction = await this.getTransaction(
+      workspaceId,
+      branchId,
+      transactionId,
+      userId,
+    );
     transaction.status = status;
-    return await this.transactionsRepository.save(transaction);
+    const saved = await this.transactionsRepository.save(transaction);
+    // If a debt has been paid (completed), generate a receipt and ensure
+    // it's visible in sales lists via the completed status mapping.
+    try {
+      if (transaction.type === 'debt' && status === 'completed') {
+        const receiptUrl =
+          await this.receiptService.generateAndUploadReceipt(transaction);
+        transaction.receiptUrl = receiptUrl;
+        await this.transactionsRepository.save(transaction);
+      }
+    } catch (e) {
+      // non-fatal
+    }
+    await this.auditLogService.log({
+      workspaceId,
+      branchId: branchId || undefined,
+      actorUserId: userId,
+      action: 'transaction.status.update',
+      entityType: 'transaction',
+      entityId: transactionId,
+      metadata: { status },
+    });
+    return saved;
   }
 
-  async getSummary(workspaceId: string, startDate: Date, endDate: Date) {
-    const transactions = await this.transactionsRepository.find({
-      where: {
-        workspace: { id: workspaceId },
+  async returnDebtTransaction(
+    workspaceId: string,
+    branchId: string | null,
+    transactionId: string,
+    body: ReturnDebtDto,
+    userId: string,
+  ) {
+    await this.assertTransactionScope(
+      workspaceId,
+      branchId,
+      userId,
+      'debts.manage',
+    );
+    await this.billingService.assertWorkspaceWritable(workspaceId);
+    const transaction = await this.getTransaction(
+      workspaceId,
+      branchId,
+      transactionId,
+      userId,
+    );
+
+    if (transaction.type !== 'debt') {
+      throw new BadRequestException('Only debt transactions can be returned');
+    }
+    if (transaction.status !== 'pending') {
+      throw new BadRequestException(
+        'Debt return is only allowed for pending debts',
+      );
+    }
+
+    const returnQuantity = Number(body?.quantity || 0);
+    if (!returnQuantity || returnQuantity <= 0) {
+      throw new BadRequestException(
+        'Return quantity must be greater than zero',
+      );
+    }
+
+    const lineItems = Array.isArray(transaction.lineItems)
+      ? [...transaction.lineItems]
+      : [];
+    const quantityBefore = Number(transaction.quantity || 0);
+    let quantityAfter = quantityBefore;
+    const amountBefore = Number(transaction.totalAmount || 0);
+    let amountAfter = amountBefore;
+    let returnedItemName = transaction.item?.name || 'item';
+    let restockItem: InventoryItem | null = null;
+
+    if (lineItems.length > 0) {
+      const itemIdFromBody = body?.itemId ? String(body.itemId) : '';
+      const targetIndex = itemIdFromBody
+        ? lineItems.findIndex(
+            (line) => String(line?.itemId || '') === itemIdFromBody,
+          )
+        : lineItems.length === 1
+          ? 0
+          : -1;
+
+      if (targetIndex < 0) {
+        throw new BadRequestException(
+          'Provide a valid itemId for this debt return',
+        );
+      }
+
+      const targetLine = lineItems[targetIndex];
+      const lineQtyBefore = Number(targetLine?.quantity || 0);
+      if (returnQuantity > lineQtyBefore) {
+        throw new BadRequestException(
+          `Return quantity cannot exceed outstanding quantity (${lineQtyBefore})`,
+        );
+      }
+
+      const lineUnitPrice = Number(targetLine?.unitPrice || 0);
+      const lineDiscountAmount = Math.max(
+        0,
+        Number(targetLine?.discountAmount || 0),
+      );
+      const inferredLineTotal = Math.max(
+        0,
+        lineUnitPrice * lineQtyBefore - lineDiscountAmount,
+      );
+      const lineTotalBefore = Number(
+        Number(targetLine?.total || 0) > 0
+          ? targetLine?.total
+          : inferredLineTotal,
+      );
+      const lineUnitNet =
+        lineQtyBefore > 0
+          ? lineTotalBefore / lineQtyBefore
+          : Math.max(0, lineUnitPrice);
+      const lineQtyAfter = Number((lineQtyBefore - returnQuantity).toFixed(2));
+      const lineTotalAfter = Number(
+        (lineTotalBefore - lineUnitNet * returnQuantity).toFixed(2),
+      );
+
+      returnedItemName = targetLine?.name || returnedItemName;
+      quantityAfter = Number((quantityBefore - returnQuantity).toFixed(2));
+      amountAfter = Number(
+        (amountBefore - lineUnitNet * returnQuantity).toFixed(2),
+      );
+
+      if (lineQtyAfter <= 0) {
+        lineItems.splice(targetIndex, 1);
+      } else {
+        lineItems[targetIndex] = {
+          ...targetLine,
+          quantity: lineQtyAfter,
+          total: Math.max(0, lineTotalAfter),
+        };
+      }
+
+      if (targetLine?.itemId) {
+        restockItem = await this.itemsRepository.findOne({
+          where: branchId
+            ? { id: String(targetLine.itemId), workspaceId, branchId }
+            : {
+                id: String(targetLine.itemId),
+                workspaceId,
+                branchId: IsNull(),
+              },
+        });
+      }
+    } else {
+      if (!transaction.item?.id) {
+        throw new BadRequestException('This debt is missing an inventory item');
+      }
+      if (returnQuantity > quantityBefore) {
+        throw new BadRequestException(
+          `Return quantity cannot exceed outstanding quantity (${quantityBefore})`,
+        );
+      }
+      const unitNet = quantityBefore > 0 ? amountBefore / quantityBefore : 0;
+      quantityAfter = Number((quantityBefore - returnQuantity).toFixed(2));
+      amountAfter = Number(
+        (amountBefore - unitNet * returnQuantity).toFixed(2),
+      );
+      restockItem = await this.itemsRepository.findOne({
+        where: branchId
+          ? { id: transaction.item.id, workspaceId, branchId }
+          : { id: transaction.item.id, workspaceId, branchId: IsNull() },
+      });
+    }
+
+    if (!restockItem) {
+      throw new NotFoundException(
+        'Inventory item for this return was not found',
+      );
+    }
+
+    restockItem.quantity = Number(
+      (Number(restockItem.quantity || 0) + returnQuantity).toFixed(2),
+    );
+    await this.itemsRepository.save(restockItem);
+
+    transaction.quantity = Math.max(0, quantityAfter);
+    transaction.totalAmount = Math.max(0, amountAfter);
+    transaction.lineItems = lineItems.length > 0 ? lineItems : null;
+    transaction.status = transaction.quantity <= 0 ? 'completed' : 'pending';
+
+    const returnNote = `[Return ${new Date().toISOString()}] ${returnQuantity} unit(s) of ${returnedItemName} returned${body?.notes ? ` - ${body.notes}` : ''}`;
+    transaction.notes = transaction.notes
+      ? `${transaction.notes}\n${returnNote}`
+      : returnNote;
+
+    const saved = await this.transactionsRepository.save(transaction);
+    await this.auditLogService.log({
+      workspaceId,
+      branchId: branchId || undefined,
+      actorUserId: userId,
+      action: 'transaction.debt.return',
+      entityType: 'transaction',
+      entityId: transaction.id,
+      metadata: {
+        returnedQuantity: returnQuantity,
+        quantityRemaining: saved.quantity,
+        totalAmountRemaining: saved.totalAmount,
       },
+    });
+    return saved;
+  }
+
+  async getSummary(
+    workspaceId: string,
+    branchId: string | null,
+    userId: string,
+    startDate: Date,
+    endDate: Date,
+  ) {
+    await this.assertTransactionScope(
+      workspaceId,
+      branchId,
+      userId,
+      'reports.view',
+    );
+    const transactions = await this.transactionsRepository.find({
+      where: branchId
+        ? {
+            workspaceId,
+            branchId,
+          }
+        : {
+            workspaceId,
+            branchId: IsNull(),
+          },
       relations: ['item'],
     });
 
     const filteredByDate = transactions.filter(
-      (t) => new Date(t.createdAt) >= startDate && new Date(t.createdAt) <= endDate
+      (t) =>
+        new Date(t.createdAt) >= startDate && new Date(t.createdAt) <= endDate,
     );
 
     const sales = filteredByDate

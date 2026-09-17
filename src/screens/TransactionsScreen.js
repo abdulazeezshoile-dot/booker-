@@ -4,16 +4,61 @@ import { Card, Subtle, EmptyState, SkeletonBlock } from '../components/UI';
 import { useTheme } from '../theme/ThemeContext';
 import { useWorkspace } from '../context/WorkspaceContext';
 import { api } from '../api/client';
+import { cacheTransactions, getCachedTransactions } from '../storage/offlineStore';
 import { MaterialIcons } from '@expo/vector-icons';
+
+const isPendingSyncStatus = (status) => {
+  const value = String(status || '').toLowerCase();
+  return value === 'pending_create' || value === 'pending_update' || value === 'failed' || value === 'conflict';
+};
+
+const mergeByIdentity = (primary = [], secondary = []) => {
+  const map = new Map();
+  [...(Array.isArray(primary) ? primary : []), ...(Array.isArray(secondary) ? secondary : [])].forEach((item) => {
+    const key = String(item?.id ?? item?.server_id ?? item?.local_id ?? '');
+    if (!key || key === 'undefined' || key === 'null') return;
+
+    const existing = map.get(key);
+    if (!existing) {
+      map.set(key, item);
+      return;
+    }
+
+    const existingPending = isPendingSyncStatus(existing?.sync_status);
+    const incomingPending = isPendingSyncStatus(item?.sync_status);
+    if (incomingPending && !existingPending) {
+      map.set(key, item);
+      return;
+    }
+    if (existingPending && !incomingPending) {
+      return;
+    }
+
+    const existingTime = new Date(existing?.updatedAt || existing?.updated_at || existing?.createdAt || 0).getTime();
+    const incomingTime = new Date(item?.updatedAt || item?.updated_at || item?.createdAt || 0).getTime();
+    if (incomingTime >= existingTime) {
+      map.set(key, item);
+    }
+  });
+  return Array.from(map.values()).sort((left, right) => {
+    const leftTime = new Date(left?.createdAt || left?.updatedAt || left?.updated_at || 0).getTime();
+    const rightTime = new Date(right?.createdAt || right?.updatedAt || right?.updated_at || 0).getTime();
+    return rightTime - leftTime;
+  });
+};
 
 export default function TransactionsScreen({ navigation }) {
   const themeContext = useTheme();
   const theme = themeContext.theme;
-  const { currentWorkspaceId } = useWorkspace();
+  const { currentWorkspaceId, activeBranchId, repo } = useWorkspace();
   const { width } = useWindowDimensions();
   const [transactions, setTransactions] = useState([]);
   const [loading, setLoading] = useState(false);
   const contentWidth = Math.min(width - 24, 860);
+  const transactionPath = activeBranchId
+    ? `/workspaces/${currentWorkspaceId}/branches/${activeBranchId}/transactions`
+    : `/workspaces/${currentWorkspaceId}/transactions`;
+  const transactionScopeId = activeBranchId || currentWorkspaceId;
 
   useEffect(() => {
     const loadTransactions = async () => {
@@ -24,17 +69,39 @@ export default function TransactionsScreen({ navigation }) {
 
       setLoading(true);
       try {
-        const data = await api.get(`/workspaces/${currentWorkspaceId}/transactions`, { take: 50 });
-        setTransactions(Array.isArray(data) ? data : []);
+        const localRows = await repo.getTransactions();
+        const localList = [];
+        if (localRows?.rows?.length > 0) {
+          for (let i = 0; i < localRows.rows.length; i += 1) {
+            const row = localRows.rows.item(i);
+            const data = row.data ? JSON.parse(row.data) : {};
+            localList.push({
+              ...data,
+              id: data.id ?? row.server_id ?? row.local_id,
+              local_id: row.local_id,
+              sync_status: row.sync_status,
+            });
+          }
+        }
+        if (localList.length > 0) {
+          setTransactions(localList);
+        }
+
+        const data = await api.get(transactionPath, { take: 50 });
+        const list = Array.isArray(data) ? data : [];
+        const cached = await getCachedTransactions(transactionScopeId);
+        setTransactions(mergeByIdentity(list, cached));
+        cacheTransactions(transactionScopeId, null, list).catch(() => null);
       } catch (err) {
-        setTransactions([]);
+        const cached = await getCachedTransactions(transactionScopeId);
+        setTransactions(Array.isArray(cached) ? cached : []);
       } finally {
         setLoading(false);
       }
     };
 
     loadTransactions();
-  }, [currentWorkspaceId]);
+  }, [currentWorkspaceId, transactionPath, transactionScopeId, repo]);
 
   const renderAmount = useMemo(() => {
     return (item) => `₦${Number(item.totalAmount || 0).toLocaleString()}`;
@@ -90,7 +157,7 @@ export default function TransactionsScreen({ navigation }) {
               subtitle="Sales, expenses and debts will appear here"
               style={{ marginTop: 32 }}
               ctaLabel="Record a transaction"
-              onCtaPress={() => navigation.navigate('RecordSaleScreen')}
+              onCtaPress={() => navigation.navigate('RecordSale')}
               accessibilityLabel="No transactions. Record a transaction."
             />
           )}

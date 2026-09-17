@@ -4,7 +4,6 @@ import {
   Column,
   CreateDateColumn,
   UpdateDateColumn,
-  ManyToMany,
   OneToMany,
   ManyToOne,
   JoinColumn,
@@ -12,6 +11,8 @@ import {
 import { User } from '../../auth/entities/user.entity';
 import { InventoryItem } from '../../inventory/entities/inventory-item.entity';
 import { Transaction } from '../../transactions/entities/transaction.entity';
+import { WorkspaceMembership } from './workspace-membership.entity';
+import { Branch } from './branch.entity';
 
 @Entity('workspaces')
 export class Workspace {
@@ -47,15 +48,20 @@ export class Workspace {
   @Column({ name: 'parent_workspace_id', nullable: true })
   parentWorkspaceId: string | null;
 
-  @ManyToOne(() => Workspace, (workspace) => workspace.branches, { nullable: true })
+  @ManyToOne(() => Workspace, (workspace) => workspace.branches, {
+    nullable: true,
+  })
   @JoinColumn({ name: 'parent_workspace_id' })
   parentWorkspace: Workspace | null;
 
   @OneToMany(() => Workspace, (workspace) => workspace.parentWorkspace)
   branches: Workspace[];
 
-  @ManyToMany(() => User, (user) => user.workspaces)
-  users: User[];
+  @OneToMany(() => Branch, (branch) => branch.workspace)
+  branchRecords: Branch[];
+
+  @OneToMany(() => WorkspaceMembership, (membership) => membership.workspace)
+  memberships: WorkspaceMembership[];
 
   @OneToMany(() => InventoryItem, (item) => item.workspace)
   items: InventoryItem[];
@@ -63,9 +69,9 @@ export class Workspace {
   @OneToMany(() => Transaction, (transaction) => transaction.workspace)
   transactions: Transaction[];
 
-  @CreateDateColumn()
+  @CreateDateColumn({ name: 'createdAt' })
   createdAt: Date;
 
-  @UpdateDateColumn()
+  @UpdateDateColumn({ name: 'updatedAt' })
   updatedAt: Date;
 }

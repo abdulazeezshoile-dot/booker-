@@ -14,21 +14,62 @@ export class EmailService {
 
   constructor(private configService: ConfigService) {}
 
-  async sendEmail(input: SendEmailInput): Promise<void> {
-    const enabled = (this.configService.get<string>('MAILGUN_ENABLED') || 'true') === 'true';
+  getDeliveryReadiness() {
+    const enabled =
+      (this.configService.get<string>('MAILGUN_ENABLED') || 'true') === 'true';
+    const apiKey = this.configService.get<string>('MAILGUN_API_KEY');
+    const domain = this.configService.get<string>('MAILGUN_DOMAIN');
+
     if (!enabled) {
-      this.logger.log(`MAILGUN_ENABLED=false. Skipping email send to ${input.to}`);
+      return {
+        enabled: false,
+        configured: false,
+        canSend: false,
+        reason: 'MAILGUN_ENABLED=false',
+      };
+    }
+
+    if (!apiKey || !domain) {
+      return {
+        enabled: true,
+        configured: false,
+        canSend: false,
+        reason: 'MAILGUN_API_KEY or MAILGUN_DOMAIN is missing',
+      };
+    }
+
+    return {
+      enabled: true,
+      configured: true,
+      canSend: true,
+      reason: null,
+    };
+  }
+
+  async sendEmail(input: SendEmailInput): Promise<void> {
+    const readiness = this.getDeliveryReadiness();
+    if (!readiness.enabled) {
+      this.logger.log(
+        `MAILGUN_ENABLED=false. Skipping email send to ${input.to}`,
+      );
       return;
     }
 
     const apiKey = this.configService.get<string>('MAILGUN_API_KEY');
     const domain = this.configService.get<string>('MAILGUN_DOMAIN');
-    const baseUrl = this.configService.get<string>('MAILGUN_BASE_URL') || 'https://api.mailgun.net';
-    const fromEmail = this.configService.get<string>('MAILGUN_FROM_EMAIL') || 'no-reply@bizrecord.tech';
-    const fromName = this.configService.get<string>('MAILGUN_FROM_NAME') || 'BizRecord';
+    const baseUrl =
+      this.configService.get<string>('MAILGUN_BASE_URL') ||
+      'https://api.mailgun.net';
+    const fromEmail =
+      this.configService.get<string>('MAILGUN_FROM_EMAIL') ||
+      'no-reply@bizrecord.tech';
+    const fromName =
+      this.configService.get<string>('MAILGUN_FROM_NAME') || 'BizRecord';
 
-    if (!apiKey || !domain) {
-      this.logger.error('Missing Mailgun credentials/config. Required: MAILGUN_API_KEY, MAILGUN_DOMAIN');
+    if (!readiness.configured || !apiKey || !domain) {
+      this.logger.error(
+        'Missing Mailgun credentials/config. Required: MAILGUN_API_KEY, MAILGUN_DOMAIN',
+      );
       return;
     }
 

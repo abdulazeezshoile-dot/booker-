@@ -4,17 +4,22 @@ import { SkeletonBlock } from '../components/UI';
 import { useTheme } from '../theme/ThemeContext';
 import { useWorkspace } from '../context/WorkspaceContext';
 import { api } from '../api/client';
+import { upsertLocalCustomer } from '../storage/offlineStore';
 import { MaterialIcons } from '@expo/vector-icons';
 
 export default function EditCustomerScreen({ route, navigation }) {
   const { theme } = useTheme();
-  const { currentWorkspaceId } = useWorkspace();
+  const { currentWorkspaceId, activeBranchId, queueAction } = useWorkspace();
   const customer = route?.params?.customer;
   const [name, setName] = useState(customer?.name || '');
   const [email, setEmail] = useState(customer?.email || '');
   const [phone, setPhone] = useState(customer?.phone || '');
   const [address, setAddress] = useState(customer?.address || '');
   const [loading, setLoading] = useState(false);
+  const customerPath = activeBranchId
+    ? `/workspaces/${currentWorkspaceId}/branches/${activeBranchId}/customers`
+    : `/workspaces/${currentWorkspaceId}/customers`;
+  const customerScopeId = activeBranchId || currentWorkspaceId;
 
   const handleUpdate = async () => {
     if (!name.trim()) {
@@ -23,10 +28,36 @@ export default function EditCustomerScreen({ route, navigation }) {
     }
     setLoading(true);
     try {
-      await api.put(`/workspaces/${currentWorkspaceId}/customers/${customer.id}`, { name, email, phone, address });
+      const payload = { name, email, phone, address };
+      const localId = customer.local_id || customer.id;
+      await api.put(`${customerPath}/${customer.id}`, payload);
+      await upsertLocalCustomer({
+        local_id: localId,
+        server_id: String(customer.id),
+        workspace_server_id: customerScopeId,
+        data: { ...customer, ...payload, id: customer.id, local_id: localId },
+        sync_status: 'synced',
+      }, customerScopeId);
       navigation.goBack();
     } catch (err) {
-      Alert.alert('Error', err.message || 'Failed to update customer');
+      if (!err?.response && queueAction) {
+        await upsertLocalCustomer({
+          local_id: customer.local_id || customer.id,
+          server_id: String(customer.id).startsWith('local_') ? null : String(customer.id),
+          workspace_server_id: customerScopeId,
+          data: { ...customer, name, email, phone, address, id: customer.id, local_id: customer.local_id || customer.id },
+          sync_status: 'pending_update',
+        }, customerScopeId);
+        await queueAction({
+          method: 'put',
+          path: `${customerPath}/${customer.id}`,
+          body: { name, email, phone, address },
+        });
+        Alert.alert('Offline', 'Customer update saved locally and will sync once online');
+        navigation.goBack();
+      } else {
+        Alert.alert('Error', err.message || 'Failed to update customer');
+      }
     } finally {
       setLoading(false);
     }
@@ -62,3 +93,4 @@ const styles = StyleSheet.create({
   input: { borderWidth: 1, borderRadius: 8, padding: 10, marginBottom: 12, fontSize: 16 },
   button: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', padding: 12, borderRadius: 8, marginTop: 16 },
 });
+

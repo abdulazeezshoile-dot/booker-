@@ -3,11 +3,13 @@ import { View, Text, TextInput, TouchableOpacity, StyleSheet, Alert, Platform, S
 import { useTheme } from '../../theme/ThemeContext';
 import { useWorkspace } from '../../context/WorkspaceContext';
 import { api } from '../../api/client';
+import * as offlineStore from '../../storage/offlineStore';
+import { showSuccessToast } from '../../utils/toast';
 
 export default function EditItemScreen({ navigation, route }) {
   const themeContext = useTheme();
   const theme = themeContext.theme;
-  const { currentWorkspaceId, queueAction } = useWorkspace();
+  const { currentWorkspaceId, activeBranchId, queueAction } = useWorkspace();
   const item = route?.params?.item;
 
   const [name, setName] = useState(item?.name || '');
@@ -18,6 +20,10 @@ export default function EditItemScreen({ navigation, route }) {
   const [category, setCategory] = useState(item?.category || '');
   const [location, setLocation] = useState(item?.location || '');
   const [loading, setLoading] = useState(false);
+  const inventoryPath = activeBranchId
+    ? `/workspaces/${currentWorkspaceId}/branches/${activeBranchId}/inventory`
+    : `/workspaces/${currentWorkspaceId}/inventory`;
+  const inventoryScopeId = activeBranchId || currentWorkspaceId;
 
   useEffect(() => {
     if (item) {
@@ -55,26 +61,51 @@ export default function EditItemScreen({ navigation, route }) {
     setLoading(true);
 
     try {
+      const localId = item?.local_id || item?.id;
       if (item && item.id) {
         await api.put(
-          `/workspaces/${currentWorkspaceId}/inventory/${item.id}`,
+          `${inventoryPath}/${item.id}`,
           payload,
         );
+        await offlineStore.upsertLocalInventory({
+          local_id: localId,
+          server_id: String(item.id).startsWith('local_') ? null : String(item.id),
+          workspace_server_id: inventoryScopeId,
+          data: { ...item, ...payload, id: item.id, local_id: localId },
+          sync_status: 'synced',
+        }, inventoryScopeId);
       } else {
-        await api.post(`/workspaces/${currentWorkspaceId}/inventory`, payload);
+        const created = await api.post(inventoryPath, payload);
+        await offlineStore.upsertLocalInventory({
+          local_id: localId || String(created?.id),
+          server_id: created?.id ? String(created.id) : null,
+          workspace_server_id: inventoryScopeId,
+          data: { ...payload, ...(created || {}), id: created?.id ?? localId },
+          sync_status: 'synced',
+        }, inventoryScopeId);
+        if (localId && created?.id) {
+          await offlineStore.setIdMapping('inventory', localId, String(created.id));
+        }
       }
 
-      Platform.OS === 'web'
-        ? window.alert('Item saved successfully')
-        : Alert.alert('Success', 'Item saved successfully');
+      showSuccessToast('Item saved successfully');
 
       navigation.goBack();
     } catch (err) {
       if (queueAction) {
         const path = item?.id
-          ? `/workspaces/${currentWorkspaceId}/inventory/${item.id}`
-          : `/workspaces/${currentWorkspaceId}/inventory`;
+          ? `${inventoryPath}/${item.id}`
+          : inventoryPath;
         const method = item?.id ? 'put' : 'post';
+        const localId = item?.local_id || item?.id || `local_item_${Date.now()}_${Math.random().toString(16).slice(2)}`;
+
+        await offlineStore.upsertLocalInventory({
+          local_id: localId,
+          server_id: item?.id && !String(item.id).startsWith('local_') ? String(item.id) : null,
+          workspace_server_id: inventoryScopeId,
+          data: { ...(item || {}), ...payload, id: item?.id || localId, local_id: localId },
+          sync_status: item?.id ? 'pending_update' : 'pending_create',
+        }, inventoryScopeId);
 
         await queueAction({
           method,
@@ -190,3 +221,4 @@ const styles = StyleSheet.create({
   button: { marginTop: 20, padding: 14, borderRadius: 12, alignItems: 'center' },
   buttonText: { fontSize: 16, fontWeight: '600' }
 });
+

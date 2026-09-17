@@ -1,4 +1,9 @@
-import { Injectable, UnauthorizedException, BadRequestException } from '@nestjs/common';
+import {
+  Injectable,
+  UnauthorizedException,
+  BadRequestException,
+  InternalServerErrorException,
+} from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { JwtService } from '@nestjs/jwt';
@@ -10,65 +15,97 @@ import { VerifyEmailDto } from './dto/verify-email.dto';
 import { ResendVerificationDto } from './dto/resend-verification.dto';
 import { ForgotPasswordDto } from './dto/forgot-password.dto';
 import { ResetPasswordDto } from './dto/reset-password.dto';
-import { EmailQueueService } from '../notifications/email-queue.service';
+import { EmailService } from '../notifications/email.service';
+import { EmailTemplateService } from '../notifications/email-template.service';
+import { WorkspaceInvite } from '../workspace/entities/invite.entity';
 
 @Injectable()
 export class AuthService {
   constructor(
     @InjectRepository(User)
     private usersRepository: Repository<User>,
+    @InjectRepository(WorkspaceInvite)
+    private invitesRepository: Repository<WorkspaceInvite>,
     private jwtService: JwtService,
-    private emailQueueService: EmailQueueService,
+    private emailService: EmailService,
+    private readonly emailTemplateService: EmailTemplateService,
   ) {}
 
   private generateSixDigitCode() {
     return `${Math.floor(100000 + Math.random() * 900000)}`;
   }
 
+  private async sendAuthEmail(input: {
+    to: string;
+    subject: string;
+    text: string;
+    html: string;
+  }) {
+    try {
+      await this.emailService.sendEmail(input);
+    } catch {
+      throw new InternalServerErrorException(
+        'Unable to send email right now. Please try again shortly.',
+      );
+    }
+  }
+
   private async sendVerificationEmail(user: User) {
     if (!user.emailVerificationCode) return;
 
-    this.emailQueueService.enqueue({
+    const html = this.emailTemplateService.emailVerification(
+      user.emailVerificationCode,
+    );
+
+    await this.sendAuthEmail({
       to: user.email,
       subject: 'Verify your BizRecord account',
-      text: `Your verification code is ${user.emailVerificationCode}. It expires in 10 minutes.`,
-      html: `<p>Your verification code is <b>${user.emailVerificationCode}</b>.</p><p>It expires in 10 minutes.</p>`,
+      text: `Your BizRecord verification code is ${user.emailVerificationCode}. It expires in 10 minutes. If you did not request this, please ignore this email.`,
+      html,
     });
   }
 
   private async sendResetEmail(user: User) {
     if (!user.passwordResetCode) return;
 
-    this.emailQueueService.enqueue({
+    const html = this.emailTemplateService.passwordReset(
+      user.passwordResetCode,
+    );
+
+    await this.sendAuthEmail({
       to: user.email,
       subject: 'BizRecord password reset code',
-      text: `Your password reset code is ${user.passwordResetCode}. It expires in 10 minutes.`,
-      html: `<p>Your password reset code is <b>${user.passwordResetCode}</b>.</p><p>It expires in 10 minutes.</p>`,
+      text: `Your BizRecord password reset code is ${user.passwordResetCode}. It expires in 10 minutes. If you did not request this, please secure your account immediately.`,
+      html,
     });
   }
 
   async register(registerDto: RegisterDto) {
     const { email, password, name, phone } = registerDto;
 
-    const existingUser = await this.usersRepository.findOne({ where: { email } });
+    const existingUser = await this.usersRepository.findOne({
+      where: { email },
+    });
     if (existingUser) {
       throw new BadRequestException('Email already exists');
     }
 
     const hashedPassword = await bcrypt.hash(password, 10);
-    const trialStartAt = new Date();
-    const trialEndsAt = new Date(trialStartAt.getTime() + 14 * 24 * 60 * 60 * 1000);
 
     const user = this.usersRepository.create({
       email,
       password: hashedPassword,
       name,
       phone,
-      role: 'owner',
-      plan: 'pro',
-      trialStartAt,
-      trialEndsAt,
-      trialStatus: 'active',
+      // Ownership is granted when this person creates a paid workspace. New
+      // accounts may instead be invitees, whose workspace role is staff or
+      // manager and must not inherit owner permissions.
+      role: 'user',
+      plan: null,
+      onboardingStatus: 'pending_email_verification',
+      trialStartAt: null,
+      trialEndsAt: null,
+      trialStatus: 'expired',
       emailVerified: false,
       emailVerificationCode: this.generateSixDigitCode(),
       emailVerificationExpiresAt: new Date(Date.now() + 10 * 60 * 1000),
@@ -96,17 +133,23 @@ export class AuthService {
     }
 
     if (!user.emailVerified) {
-      throw new UnauthorizedException('Email not verified. Please verify your email with OTP code.');
+      throw new UnauthorizedException(
+        'Email not verified. Please verify your email with OTP code.',
+      );
     }
 
-    // If trial expired, mark as expired but allow login
-    if (user.trialStatus === 'active' && user.trialEndsAt && user.trialEndsAt.getTime() <= Date.now()) {
-      user.trialStatus = 'expired';
-      await this.usersRepository.save(user);
+    // An invite can arrive after the user has verified their email. Re-check it
+    // at sign-in so team members never enter the owner payment onboarding.
+    if (user.onboardingStatus !== 'complete') {
+      const invite = await this.invitesRepository.findOne({
+        where: { email: user.email.toLowerCase(), status: 'pending' },
+        order: { createdAt: 'DESC' },
+      });
+      if (invite && (!invite.expiresAt || invite.expiresAt.getTime() > Date.now())) {
+        user.onboardingStatus = 'complete';
+        await this.usersRepository.save(user);
+      }
     }
-
-    // If trial expired, allow login but return upgradeRequired status
-    const trialExpired = user.trialStatus === 'expired';
 
     const payload = { sub: user.id, email: user.email };
     const token = this.jwtService.sign(payload);
@@ -114,17 +157,14 @@ export class AuthService {
     const { password: _, ...userWithoutPassword } = user;
     return {
       access_token: token,
-      user: {
-        ...userWithoutPassword,
-        upgradeRequired: trialExpired,
-      },
+      user: userWithoutPassword,
     };
   }
 
   async validateUser(userId: string) {
     const user = await this.usersRepository.findOne({
       where: { id: userId },
-      relations: ['workspaces'],
+      relations: ['memberships', 'memberships.workspace'],
     });
 
     if (!user || !user.isActive) {
@@ -140,7 +180,9 @@ export class AuthService {
   }
 
   async verifyEmail(dto: VerifyEmailDto) {
-    const user = await this.usersRepository.findOne({ where: { email: dto.email } });
+    const user = await this.usersRepository.findOne({
+      where: { email: dto.email },
+    });
     if (!user) {
       throw new BadRequestException('Invalid verification request');
     }
@@ -150,11 +192,15 @@ export class AuthService {
     }
 
     if (!user.emailVerificationCode || !user.emailVerificationExpiresAt) {
-      throw new BadRequestException('Verification code not found. Request a new code.');
+      throw new BadRequestException(
+        'Verification code not found. Request a new code.',
+      );
     }
 
     if (user.emailVerificationExpiresAt.getTime() < Date.now()) {
-      throw new BadRequestException('Verification code expired. Request a new code.');
+      throw new BadRequestException(
+        'Verification code expired. Request a new code.',
+      );
     }
 
     if (user.emailVerificationCode !== dto.code) {
@@ -162,6 +208,16 @@ export class AuthService {
     }
 
     user.emailVerified = true;
+    const invite = await this.invitesRepository.findOne({
+      where: { email: user.email.toLowerCase(), status: 'pending' },
+      order: { createdAt: 'DESC' },
+    });
+    // Team members join an owner-paid workspace and must never be sent through
+    // the owner subscription checkout.
+    user.onboardingStatus =
+      invite && (!invite.expiresAt || invite.expiresAt.getTime() > Date.now())
+        ? 'complete'
+        : 'pending_payment';
     user.emailVerificationCode = null;
     user.emailVerificationExpiresAt = null;
     await this.usersRepository.save(user);
@@ -170,7 +226,9 @@ export class AuthService {
   }
 
   async resendVerification(dto: ResendVerificationDto) {
-    const user = await this.usersRepository.findOne({ where: { email: dto.email } });
+    const user = await this.usersRepository.findOne({
+      where: { email: dto.email },
+    });
     if (!user) {
       return { message: 'If account exists, verification code will be sent.' };
     }
@@ -180,8 +238,13 @@ export class AuthService {
     }
 
     const now = Date.now();
-    if (user.emailVerificationLastSentAt && now - user.emailVerificationLastSentAt.getTime() < 60 * 1000) {
-      throw new BadRequestException('Please wait at least 60 seconds before requesting another code.');
+    if (
+      user.emailVerificationLastSentAt &&
+      now - user.emailVerificationLastSentAt.getTime() < 60 * 1000
+    ) {
+      throw new BadRequestException(
+        'Please wait at least 60 seconds before requesting another code.',
+      );
     }
 
     user.emailVerificationCode = this.generateSixDigitCode();
@@ -194,14 +257,21 @@ export class AuthService {
   }
 
   async forgotPassword(dto: ForgotPasswordDto) {
-    const user = await this.usersRepository.findOne({ where: { email: dto.email } });
+    const user = await this.usersRepository.findOne({
+      where: { email: dto.email },
+    });
     if (!user) {
       return { message: 'If account exists, reset code will be sent.' };
     }
 
     const now = Date.now();
-    if (user.passwordResetLastSentAt && now - user.passwordResetLastSentAt.getTime() < 60 * 1000) {
-      throw new BadRequestException('Please wait at least 60 seconds before requesting another code.');
+    if (
+      user.passwordResetLastSentAt &&
+      now - user.passwordResetLastSentAt.getTime() < 60 * 1000
+    ) {
+      throw new BadRequestException(
+        'Please wait at least 60 seconds before requesting another code.',
+      );
     }
 
     user.passwordResetCode = this.generateSixDigitCode();
@@ -214,7 +284,9 @@ export class AuthService {
   }
 
   async resetPassword(dto: ResetPasswordDto) {
-    const user = await this.usersRepository.findOne({ where: { email: dto.email } });
+    const user = await this.usersRepository.findOne({
+      where: { email: dto.email },
+    });
     if (!user || !user.passwordResetCode || !user.passwordResetExpiresAt) {
       throw new BadRequestException('Invalid reset request');
     }

@@ -20,10 +20,50 @@ import { api } from '../api/client';
 import { cacheInventory, getCachedInventory } from '../storage/offlineStore';
 import { EmptyState, SkeletonBlock } from '../components/UI';
 
+const isPendingSyncStatus = (status) => {
+  const value = String(status || '').toLowerCase();
+  return value === 'pending_create' || value === 'pending_update' || value === 'failed' || value === 'conflict';
+};
+
+const mergeByIdentity = (primary = [], secondary = []) => {
+  const map = new Map();
+  [...(Array.isArray(primary) ? primary : []), ...(Array.isArray(secondary) ? secondary : [])].forEach((item) => {
+    const key = String(item?.id ?? item?.server_id ?? item?.local_id ?? '');
+    if (!key || key === 'undefined' || key === 'null') return;
+
+    const existing = map.get(key);
+    if (!existing) {
+      map.set(key, item);
+      return;
+    }
+
+    const existingPending = isPendingSyncStatus(existing?.sync_status);
+    const incomingPending = isPendingSyncStatus(item?.sync_status);
+    if (incomingPending && !existingPending) {
+      map.set(key, item);
+      return;
+    }
+    if (existingPending && !incomingPending) {
+      return;
+    }
+
+    const existingTime = new Date(existing?.updatedAt || existing?.updated_at || existing?.createdAt || 0).getTime();
+    const incomingTime = new Date(item?.updatedAt || item?.updated_at || item?.createdAt || 0).getTime();
+    if (incomingTime >= existingTime) {
+      map.set(key, item);
+    }
+  });
+  return Array.from(map.values()).sort((left, right) => {
+    const leftTime = new Date(left?.createdAt || left?.updatedAt || left?.updated_at || 0).getTime();
+    const rightTime = new Date(right?.createdAt || right?.updatedAt || right?.updated_at || 0).getTime();
+    return rightTime - leftTime;
+  });
+};
+
 const HomeScreen = function({ navigation }) {
   const themeContext = useTheme();
   const theme = themeContext.theme;
-  const { currentWorkspaceId, queueAction, workspaces, repo } = useWorkspace();
+  const { currentWorkspaceId, activeBranchId, queueAction, workspaces, repo } = useWorkspace();
   const currentWorkspace = workspaces.find((workspace) => workspace.id === currentWorkspaceId);
 
   const [items, setItems] = useState([]);
@@ -33,6 +73,10 @@ const HomeScreen = function({ navigation }) {
   const [selectedItem, setSelectedItem] = useState(null);
   const [newQuantity, setNewQuantity] = useState('');
   const isLikelyOfflineError = (err) => !err?.response;
+  const inventoryPath = activeBranchId
+    ? `/workspaces/${currentWorkspaceId}/branches/${activeBranchId}/inventory`
+    : `/workspaces/${currentWorkspaceId}/inventory`;
+  const inventoryScopeId = activeBranchId || currentWorkspaceId;
 
   // Local-first list rendering with pending overlay
   const loadItems = useCallback(async () => {
@@ -52,17 +96,22 @@ const HomeScreen = function({ navigation }) {
         for (let i = 0; i < localRows.rows.length; i++) {
           const row = localRows.rows.item(i);
           const data = row.data ? JSON.parse(row.data) : {};
-          localList.push({ ...data, local_id: row.local_id, sync_status: row.sync_status });
+          localList.push({
+            ...data,
+            id: data.id ?? row.server_id ?? row.local_id,
+            local_id: row.local_id,
+            sync_status: row.sync_status,
+          });
         }
       }
       setItems(localList);
 
       // Optionally, fetch remote and update local cache if online
       try {
-        const data = await api.get(`/workspaces/${currentWorkspaceId}/inventory`);
+        const data = await api.get(inventoryPath);
         const list = Array.isArray(data) ? data : [];
-        setItems(list);
-        cacheInventory(currentWorkspaceId, list);
+        setItems(mergeByIdentity(list, localList));
+        cacheInventory(inventoryScopeId, list);
       } catch (err) {
         // Ignore fetch error, stay local
       }
@@ -71,7 +120,7 @@ const HomeScreen = function({ navigation }) {
     } finally {
       setLoadingItems(false);
     }
-  }, [currentWorkspaceId, repo]);
+  }, [currentWorkspaceId, inventoryPath, inventoryScopeId, repo]);
 
   useFocusEffect(
     useCallback(() => {
@@ -132,7 +181,7 @@ const HomeScreen = function({ navigation }) {
           // Fallback: try to infer action from item
           action = {
             method: 'put',
-            path: `/workspaces/${currentWorkspaceId}/inventory/${item.id}`,
+            path: `${inventoryPath}/${item.id}`,
             body: { ...item },
           };
         }
@@ -154,14 +203,14 @@ const HomeScreen = function({ navigation }) {
     return ['All'].concat(Object.keys(categorySet));
   }, [items]);
 
-  const handleUpdateQuantity = async function(itemId, qty) {
+  const handleUpdateQuantity = useCallback(async function(itemId, qty) {
     if (qty < 0) return;
 
     if (!currentWorkspaceId) return;
 
     try {
       await api.put(
-        `/workspaces/${currentWorkspaceId}/inventory/${itemId}`,
+        `${inventoryPath}/${itemId}`,
         { quantity: qty }
       );
 
@@ -172,7 +221,7 @@ const HomeScreen = function({ navigation }) {
           }
           return item;
         });
-        cacheInventory(currentWorkspaceId, next);
+        cacheInventory(inventoryScopeId, next);
         return next;
       });
 
@@ -195,7 +244,7 @@ const HomeScreen = function({ navigation }) {
       if (queueAction && isLikelyOfflineError(err)) {
         await queueAction({
           method: 'put',
-          path: `/workspaces/${currentWorkspaceId}/inventory/${itemId}`,
+          path: `${inventoryPath}/${itemId}`,
           body: { quantity: qty },
         });
         Alert.alert('Offline', 'Update queued and will sync once online');
@@ -205,7 +254,7 @@ const HomeScreen = function({ navigation }) {
     } finally {
       setShowUpdateModal(false);
     }
-  };
+  }, [currentWorkspaceId, inventoryPath, inventoryScopeId, items, queueAction]);
 
   const handleDeleteItem = async (itemId) => {
     if (!currentWorkspaceId) return;
@@ -218,18 +267,18 @@ const HomeScreen = function({ navigation }) {
         onPress: async () => {
           try {
             await api.delete(
-              `/workspaces/${currentWorkspaceId}/inventory/${itemId}`
+              `${inventoryPath}/${itemId}`
             );
             setItems((prev) => {
               const next = prev.filter((item) => item.id !== itemId);
-              cacheInventory(currentWorkspaceId, next);
+              cacheInventory(inventoryScopeId, next);
               return next;
             });
           } catch (err) {
             if (queueAction && isLikelyOfflineError(err)) {
               await queueAction({
                 method: 'delete',
-                path: `/workspaces/${currentWorkspaceId}/inventory/${itemId}`,
+                path: `${inventoryPath}/${itemId}`,
               });
               Alert.alert('Offline', 'Delete queued and will sync once online');
             } else {
@@ -920,3 +969,4 @@ const styles = StyleSheet.create({
 });
 
 export default HomeScreen;
+

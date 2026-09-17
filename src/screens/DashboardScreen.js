@@ -1,25 +1,62 @@
 import React, { useEffect, useState } from 'react';
-import { View, Text, ScrollView, TouchableOpacity, StyleSheet, useWindowDimensions } from 'react-native';
+import { Alert, View, Text, ScrollView, TouchableOpacity, StyleSheet, useWindowDimensions } from 'react-native';
 import { useFocusEffect } from '@react-navigation/native';
 import { useTheme } from '../theme/ThemeContext';
 import { useWorkspace } from '../context/WorkspaceContext';
 import { cacheTransactions, getCachedTransactions } from '../storage/offlineStore';
 import { cacheInventory, getCachedInventory } from '../storage/offlineStore';
-import { Card, Title, Subtle, SkeletonBlock, EmptyState } from '../components/UI';
+import { Card, Title, Subtle, SkeletonBlock, EmptyState, AppButton } from '../components/UI';
 import { useAuth } from '../context/AuthContext';
 import { api } from '../api/client';
 import { MaterialIcons } from '@expo/vector-icons';
+
+const isPendingSyncStatus = (status) => {
+  const value = String(status || '').toLowerCase();
+  return value === 'pending_create' || value === 'pending_update' || value === 'failed' || value === 'conflict';
+};
+
+const mergeByIdentity = (primary = [], secondary = []) => {
+  const rows = [...(Array.isArray(primary) ? primary : []), ...(Array.isArray(secondary) ? secondary : [])];
+  const map = new Map();
+
+  rows.forEach((item) => {
+    const key = String(item?.id ?? item?.server_id ?? item?.local_id ?? '');
+    if (!key || key === 'undefined' || key === 'null') return;
+
+    const existing = map.get(key);
+    if (!existing) {
+      map.set(key, item);
+      return;
+    }
+
+    const existingPending = isPendingSyncStatus(existing?.sync_status);
+    const incomingPending = isPendingSyncStatus(item?.sync_status);
+    if (incomingPending && !existingPending) {
+      map.set(key, item);
+      return;
+    }
+    if (existingPending && !incomingPending) {
+      return;
+    }
+
+    const existingTime = new Date(existing?.updatedAt || existing?.updated_at || existing?.createdAt || 0).getTime();
+    const incomingTime = new Date(item?.updatedAt || item?.updated_at || item?.createdAt || 0).getTime();
+    if (incomingTime >= existingTime) {
+      map.set(key, item);
+    }
+  });
+
+  return Array.from(map.values()).sort((left, right) => {
+    const leftTime = new Date(left?.createdAt || left?.updatedAt || left?.updated_at || 0).getTime();
+    const rightTime = new Date(right?.createdAt || right?.updatedAt || right?.updated_at || 0).getTime();
+    return rightTime - leftTime;
+  });
+};
 
 export default function DashboardScreen({ navigation }) {
   const themeContext = useTheme();
   const theme = themeContext.theme;
   const { user } = useAuth();
-  const [showRenewalModal, setShowRenewalModal] = useState(false);
-  useEffect(() => {
-    if (user?.upgradeRequired) {
-      setShowRenewalModal(true);
-    }
-  }, [user]);
   const workspace = useWorkspace();
   const { width } = useWindowDimensions();
   const compact = width < 390;
@@ -33,6 +70,15 @@ export default function DashboardScreen({ navigation }) {
   const [activityError, setActivityError] = React.useState(null);
   const [inventoryItems, setInventoryItems] = React.useState([]);
   const [refreshTick, setRefreshTick] = React.useState(0);
+  const [pendingInviteCount, setPendingInviteCount] = React.useState(0);
+  const transactionPath = workspace.activeBranchId
+    ? `/workspaces/${workspace.currentWorkspaceId}/branches/${workspace.activeBranchId}/transactions`
+    : `/workspaces/${workspace.currentWorkspaceId}/transactions`;
+  const transactionScopeId = workspace.activeBranchId || workspace.currentWorkspaceId;
+  const inventoryPath = workspace.activeBranchId
+    ? `/workspaces/${workspace.currentWorkspaceId}/branches/${workspace.activeBranchId}/inventory`
+    : `/workspaces/${workspace.currentWorkspaceId}/inventory`;
+  const inventoryScopeId = workspace.activeBranchId || workspace.currentWorkspaceId;
 
   useFocusEffect(
     React.useCallback(() => {
@@ -53,21 +99,28 @@ export default function DashboardScreen({ navigation }) {
 
       try {
         const [sales, expenses] = await Promise.all([
-          api.get(`/workspaces/${workspace.currentWorkspaceId}/transactions`, { type: 'sale', take: 3 }),
-          api.get(`/workspaces/${workspace.currentWorkspaceId}/transactions`, { type: 'expense', take: 3 }),
+          api.get(transactionPath, { type: 'sale', take: 3 }),
+          api.get(transactionPath, { type: 'expense', take: 3 }),
         ]);
 
         const salesList = Array.isArray(sales) ? sales : [];
         const expensesList = Array.isArray(expenses) ? expenses : [];
 
-        setRecentSales(salesList);
-        setRecentExpenses(expensesList);
+        cacheTransactions(transactionScopeId, 'sale', salesList).catch(() => null);
+        cacheTransactions(transactionScopeId, 'expense', expensesList).catch(() => null);
 
-        cacheTransactions(workspace.currentWorkspaceId, 'sale', salesList).catch(() => null);
-        cacheTransactions(workspace.currentWorkspaceId, 'expense', expensesList).catch(() => null);
+          // Merge cached offline items with API data to avoid losing offline-created items
+          const cachedSales = await getCachedTransactions(transactionScopeId, 'sale');
+          const cachedExpenses = await getCachedTransactions(transactionScopeId, 'expense');
+          
+          const mergedSales = mergeByIdentity(salesList, cachedSales);
+          const mergedExpenses = mergeByIdentity(expensesList, cachedExpenses);
+          
+          setRecentSales(mergedSales);
+          setRecentExpenses(mergedExpenses);
       } catch (err) {
-        const cachedSales = await getCachedTransactions(workspace.currentWorkspaceId, 'sale');
-        const cachedExpenses = await getCachedTransactions(workspace.currentWorkspaceId, 'expense');
+        const cachedSales = await getCachedTransactions(transactionScopeId, 'sale');
+        const cachedExpenses = await getCachedTransactions(transactionScopeId, 'expense');
         setRecentSales(cachedSales);
         setRecentExpenses(cachedExpenses);
         setActivityError('Offline mode: showing last known activity');
@@ -77,7 +130,7 @@ export default function DashboardScreen({ navigation }) {
     };
 
     loadActivity();
-  }, [workspace.currentWorkspaceId, refreshTick]);
+  }, [workspace.currentWorkspaceId, transactionPath, transactionScopeId, refreshTick]);
 
   React.useEffect(() => {
     const loadInventory = async () => {
@@ -87,20 +140,40 @@ export default function DashboardScreen({ navigation }) {
       }
 
       try {
-        const data = await api.get(`/workspaces/${workspace.currentWorkspaceId}/inventory`);
+        const data = await api.get(inventoryPath);
         const list = Array.isArray(data) ? data : [];
-        setInventoryItems(list);
-        cacheInventory(workspace.currentWorkspaceId, list).catch(() => null);
+        cacheInventory(inventoryScopeId, list).catch(() => null);
+          
+          // Merge cached offline items with API data
+          const cached = await getCachedInventory(inventoryScopeId);
+          const merged = mergeByIdentity(list, cached);
+          setInventoryItems(merged);
       } catch (err) {
-        const cached = await getCachedInventory(workspace.currentWorkspaceId);
+        const cached = await getCachedInventory(inventoryScopeId);
         setInventoryItems(Array.isArray(cached) ? cached : []);
       }
     };
 
     loadInventory();
-  }, [workspace.currentWorkspaceId, refreshTick]);
+  }, [workspace.currentWorkspaceId, inventoryPath, inventoryScopeId, refreshTick]);
+
+  React.useEffect(() => {
+    const loadPendingInvites = async () => {
+      try {
+        const invites = await api.get('/workspaces/invites/pending');
+        setPendingInviteCount(Array.isArray(invites) ? invites.length : 0);
+      } catch (err) {
+        setPendingInviteCount(0);
+      }
+    };
+
+    loadPendingInvites();
+  }, [refreshTick]);
 
   const currentWorkspace = workspace.workspaces.find((w) => w.id === workspace.currentWorkspaceId);
+  const currentBranch = workspace.branches?.find((b) => b.id === workspace.currentBranchId);
+  const currentWorkspaceRole = currentWorkspace?.role || user?.role || 'staff';
+  const isOwnerView = currentWorkspaceRole === 'owner';
   const currentHour = new Date().getHours();
   const greeting = currentHour < 12 ? 'Good morning' : currentHour < 17 ? 'Good afternoon' : 'Good evening';
   const inventoryValue = inventoryItems.reduce((sum, item) => {
@@ -108,6 +181,11 @@ export default function DashboardScreen({ navigation }) {
     const cost = Number(item.costPrice) || 0;
     return sum + qty * cost;
   }, 0);
+  const formatActivityDate = (value) => {
+    const date = new Date(value || Date.now());
+    if (Number.isNaN(date.getTime())) return 'Unknown date';
+    return date.toLocaleString();
+  };
 
   const handleAddItem = () => {
     navigation.navigate('AddItem');
@@ -121,23 +199,16 @@ export default function DashboardScreen({ navigation }) {
     navigation.navigate('RecordExpense');
   };
 
+  const handleOpenStockTransfer = () => {
+    if ((workspace.branches?.length || 0) < 2) {
+      Alert.alert('Stock transfer', 'You need at least two accessible branches before transferring stock.');
+      return;
+    }
+    navigation.navigate('StockTransfer');
+  };
+
   return (
     <>
-      {showRenewalModal && (
-        <UpgradeModal
-          visible={showRenewalModal}
-          onClose={() => setShowRenewalModal(false)}
-          onUpgrade={() => {
-            setShowRenewalModal(false);
-            navigation.navigate('Subscription');
-          }}
-          title="Renewal required"
-          message="Your subscription has expired or requires renewal. Please upgrade your plan to continue."
-          plan={user?.plan}
-          limit={null}
-          current={null}
-        />
-      )}
       <ScrollView
         style={[styles.container, { backgroundColor: theme.colors.background }]}
         contentContainerStyle={{ alignItems: 'center', paddingHorizontal: compact ? 10 : 16, paddingVertical: 12 }}
@@ -147,7 +218,7 @@ export default function DashboardScreen({ navigation }) {
           <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 14 }}>
             <View style={{ flex: 1, paddingRight: 10 }}>
               <Text style={{ color: theme.colors.textPrimary, fontSize: titleSize, fontWeight: '700' }}>{greeting}</Text>
-              <Subtle>{user ? user.name : 'Guest'}</Subtle>
+              <Subtle>{user ? user.name : 'Guest'}{currentBranch?.name ? ` • ${currentBranch.name}` : ''}</Subtle>
             </View>
             <TouchableOpacity
               style={[styles.workspaceBadge, { backgroundColor: theme.colors.card, borderColor: theme.colors.border }]}
@@ -160,6 +231,35 @@ export default function DashboardScreen({ navigation }) {
               </Text>
             </TouchableOpacity>
           </View>
+
+          {currentWorkspace?.readOnly ? (
+            <Card style={[styles.inviteBanner, { borderColor: `${theme.colors.warning || '#F59E0B'}55`, backgroundColor: theme.colors.card }]}>
+              <View style={{ flex: 1, paddingRight: 12 }}>
+                <Text style={{ color: theme.colors.textPrimary, fontWeight: '700', marginBottom: 4 }}>
+                  Read-only workspace
+                </Text>
+                <Subtle>This workspace is view-only on your current plan. Upgrade to Pro to edit it.</Subtle>
+              </View>
+            </Card>
+          ) : null}
+
+          {pendingInviteCount > 0 ? (
+            <Card style={[styles.inviteBanner, { borderColor: `${theme.colors.primary}35`, backgroundColor: theme.colors.card }]}>
+              <View style={{ flex: 1, paddingRight: 12 }}>
+                <Text style={{ color: theme.colors.textPrimary, fontWeight: '700', marginBottom: 4 }}>
+                  You have {pendingInviteCount} pending workspace invite{pendingInviteCount === 1 ? '' : 's'}
+                </Text>
+                <Subtle>Review and accept them to join another workspace.</Subtle>
+              </View>
+              <TouchableOpacity
+                onPress={() => navigation.navigate('JoinWorkspace')}
+                style={[styles.inviteBannerButton, { backgroundColor: theme.colors.primary }]}
+                activeOpacity={0.8}
+              >
+                <Text style={{ color: '#fff', fontWeight: '700', fontSize: 12 }}>Review</Text>
+              </TouchableOpacity>
+            </Card>
+          ) : null}
 
           {/* Inventory Stats Card with Skeleton */}
           <Card style={[styles.heroCard, { padding: compact ? 12 : 14, borderColor: theme.colors.primary + '22' }]}> 
@@ -217,6 +317,32 @@ export default function DashboardScreen({ navigation }) {
             </View>
           </View>
 
+          {isOwnerView ? (
+            <Card style={{ marginTop: 16 }}>
+              <Text style={{ color: theme.colors.textPrimary, fontWeight: '700', marginBottom: 6 }}>
+                Owner Tools
+              </Text>
+              <Subtle>
+                Workspace-wide controls for branch movement and audit visibility.
+              </Subtle>
+              <View style={{ flexDirection: compact ? 'column' : 'row', gap: 10, marginTop: 12 }}>
+                <AppButton
+                  title="Stock Transfers"
+                  icon="swap-horiz"
+                  onPress={handleOpenStockTransfer}
+                  style={{ flex: 1 }}
+                />
+                <AppButton
+                  title="Audit Logs"
+                  icon="history"
+                  variant="secondary"
+                  onPress={() => navigation.navigate('AuditLogs')}
+                  style={{ flex: 1 }}
+                />
+              </View>
+            </Card>
+          ) : null}
+
           {/* Recent Activity with Skeleton and Improved Empty State */}
           {activityError ? (
             <Subtle style={{ color: theme.colors.error, fontSize: subtitleSize, marginTop: 16 }}>{activityError}</Subtle>
@@ -247,7 +373,7 @@ export default function DashboardScreen({ navigation }) {
                           <Text style={{ color: theme.colors.textPrimary, fontWeight: '600' }}>
                             {tx.customerName || 'Walk-in'} • ₦{Number(tx.totalAmount).toLocaleString()}
                           </Text>
-                          <Subtle>{new Date(tx.createdAt).toLocaleString()}</Subtle>
+                          <Subtle>{formatActivityDate(tx.createdAt)}</Subtle>
                         </View>
                       ))}
                     </Card>
@@ -261,7 +387,7 @@ export default function DashboardScreen({ navigation }) {
                           <Text style={{ color: theme.colors.textPrimary, fontWeight: '600' }}>
                             {tx.category || 'Expense'} • ₦{Number(tx.totalAmount).toLocaleString()}
                           </Text>
-                          <Subtle>{new Date(tx.createdAt).toLocaleString()}</Subtle>
+                          <Subtle>{formatActivityDate(tx.createdAt)}</Subtle>
                         </View>
                       ))}
                     </Card>
@@ -287,6 +413,17 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.08,
     shadowRadius: 8,
     elevation: 2,
+  },
+  inviteBanner: {
+    marginBottom: 14,
+    borderWidth: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  inviteBannerButton: {
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    borderRadius: 10,
   },
   workspaceBadge: { 
     flexShrink: 1,

@@ -1,8 +1,8 @@
 {
   "expo": {
     "name": "BizRecord",
-    "slug": "booker-inventory",
-    "version": "1.0.0",
+    "slug": "bizrecord",
+    "version": "1.0.2",
     "orientation": "portrait",
     "userInterfaceStyle": "automatic",
     "cli": {
@@ -19,7 +19,7 @@
       "android"
     ],
     "scheme": "bizrecord",
-    "runtimeVersion": "1.0.0",
+    "runtimeVersion": "1.0.2",
     "updates": {
       "fallbackToCacheOnError": true
     },
@@ -27,22 +27,25 @@
       "**/*"
     ],
     "android": {
-      "package": "com.bookerapp.inventory",
-      "versionCode": 1,
+      "package": "com.bizrecord.inventory",
+      "versionCode": 3,
+      "screenOrientation": "sensor",
       "adaptiveIcon": {
         "foregroundImage": "./assets/adaptive-icon.png",
         "backgroundColor": "#031f38"
       },
       "permissions": [
+        "com.android.vending.BILLING",
         "android.permission.READ_EXTERNAL_STORAGE",
-        "android.permission.WRITE_EXTERNAL_STORAGE"
+        "android.permission.WRITE_EXTERNAL_STORAGE",
+        "android.permission.POST_NOTIFICATIONS"
       ],
       "useNextNotificationFormat": true
     },
     "ios": {
       "supportsTabletMode": true,
-      "bundleIdentifier": "com.bookerapp.inventory",
-      "buildNumber": "1",
+      "bundleIdentifier": "com.bizrecord.inventory",
+      "buildNumber": "2",
       "infoPlist": {
         "NSCameraUsageDescription": "Camera is used to capture inventory photos",
         "UIRequiredDeviceCapabilities": [
@@ -55,18 +58,38 @@
       "favicon": "./assets/favicon.png"
     },
     "description": "Inventory management app for managing stock, tracking transactions, and generating reports",
-    "privacy": "https://example.com/privacy",
+    "privacy": "https://bizrecord.tech/privacy",
     "primaryColor": "#00A676",
     "androidStatusBar": {
       "backgroundColor": "#031f38",
-      "barStyle": "light-content"
+      "barStyle": "light-content",
+      "translucent": false,
+      "hidden": false
+    },
+    "androidNavigationBar": {
+      "backgroundColor": "#031f38",
+      "barStyle": "light"
     },
     "backgroundColor": "#ffffff",
-    "plugins": [],
+    "plugins": [
+      "expo-notifications",
+      "react-native-iap",
+      [
+        "expo-build-properties",
+        {
+          "android": {
+            "kotlinVersion": "2.2.0",
+            "compileSdkVersion": 36,
+            "targetSdkVersion": 36
+          }
+        }
+      ]
+    ],
     "extra": {
       "eas": {
-        "projectId": "595d2e24-df5b-4d3b-b308-7c45a082711b"
+        "projectId": "e1817cf0-89a8-4d6b-ab0f-770e54d01aea"
       }
-    }
+    },
+    "owner": "hardeynuga"
   }
 }

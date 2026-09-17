@@ -3,16 +3,24 @@ import { View, Text, TextInput, TouchableOpacity, StyleSheet, Alert } from 'reac
 import { useTheme } from '../theme/ThemeContext';
 import { useWorkspace } from '../context/WorkspaceContext';
 import { api } from '../api/client';
+import { upsertLocalCustomer, setIdMapping } from '../storage/offlineStore';
 import { MaterialIcons } from '@expo/vector-icons';
+import { useCustomerSelect } from '../context/CustomerSelectContext';
 
-export default function AddCustomerScreen({ navigation }) {
+export default function AddCustomerScreen({ navigation, route }) {
   const { theme } = useTheme();
-  const { currentWorkspaceId } = useWorkspace();
+  const { currentWorkspaceId, activeBranchId, queueAction } = useWorkspace();
+  const { setSelectedCustomer } = useCustomerSelect();
   const [name, setName] = useState('');
   const [email, setEmail] = useState('');
   const [phone, setPhone] = useState('');
   const [address, setAddress] = useState('');
   const [loading, setLoading] = useState(false);
+  const selectAfterCreate = !!route?.params?.selectAfterCreate;
+  const customerPath = activeBranchId
+    ? `/workspaces/${currentWorkspaceId}/branches/${activeBranchId}/customers`
+    : `/workspaces/${currentWorkspaceId}/customers`;
+  const customerScopeId = activeBranchId || currentWorkspaceId;
 
   const handleAdd = async () => {
     if (!name.trim()) {
@@ -21,10 +29,48 @@ export default function AddCustomerScreen({ navigation }) {
     }
     setLoading(true);
     try {
-      await api.post(`/workspaces/${currentWorkspaceId}/customers`, { name, email, phone, address });
+      const payload = { name, email, phone, address };
+      const result = await api.post(customerPath, payload);
+      const createdCustomer = { ...payload, ...(result || {}), id: result?.id ?? null };
+      const localId = result?.id ? `customer_${customerScopeId}_${result.id}` : `local_customer_${Date.now()}`;
+      await upsertLocalCustomer({
+        local_id: localId,
+        server_id: result?.id ? String(result.id) : null,
+        workspace_server_id: customerScopeId,
+        data: { ...createdCustomer, id: createdCustomer.id ?? localId, local_id: localId },
+        sync_status: 'synced',
+      }, customerScopeId);
+      if (result?.id) {
+        await setIdMapping('customer', localId, String(result.id));
+      }
+      if (selectAfterCreate) {
+        setSelectedCustomer(createdCustomer);
+      }
       navigation.goBack();
     } catch (err) {
-      Alert.alert('Error', err.message || 'Failed to add customer');
+      if (!err?.response && queueAction) {
+        const localId = `local_customer_${Date.now()}`;
+        const localCustomer = { id: localId, name, email, phone, address };
+        await upsertLocalCustomer({
+          local_id: localId,
+          server_id: null,
+          workspace_server_id: customerScopeId,
+          data: { ...localCustomer, local_id: localId },
+          sync_status: 'pending_create',
+        }, customerScopeId);
+        await queueAction({
+          method: 'post',
+          path: customerPath,
+          body: { name, email, phone, address },
+        });
+        if (selectAfterCreate) {
+          setSelectedCustomer(localCustomer);
+        }
+        Alert.alert('Offline', 'Customer saved locally and will sync once online');
+        navigation.goBack();
+      } else {
+        Alert.alert('Error', err.message || 'Failed to add customer');
+      }
     } finally {
       setLoading(false);
     }

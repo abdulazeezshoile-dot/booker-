@@ -11,13 +11,19 @@ import SalesScreen from '../screens/SalesScreen';
 import DebtScreen from '../screens/DebtScreen';
 import ReportsScreen from '../screens/ReportsScreen';
 import SettingsScreen from '../screens/SettingsScreen';
+import SubscriptionScreen from '../screens/billing/SubscriptionScreen';
 import RecordSaleScreen from '../screens/RecordSaleScreen';
 import RecordExpenseScreen from '../screens/RecordExpenseScreen';
 import RecordDebtScreen from '../screens/RecordDebtScreen';
 import BranchCreateScreen from '../screens/branch/BranchCreateScreen';
 import BranchListScreen from '../screens/branch/BranchListScreen';
+import BranchDetailScreen from '../screens/branch/BranchDetailScreen';
+import AuditLogScreen from '../screens/admin/AuditLogScreen';
+import StockTransferScreen from '../screens/admin/StockTransferScreen';
 import WorkspaceSetupScreen from '../screens/workspace/WorkspaceSetupScreen';
-import SubscriptionScreen from '../screens/billing/SubscriptionScreen';
+import WorkspaceInvitesScreen from '../screens/workspace/WorkspaceInvitesScreen';
+import TeamManagementScreen from '../screens/TeamManagementScreen';
+import NotificationsScreen from '../screens/NotificationsScreen';
 import { useTheme } from '../theme/ThemeContext';
 import { MaterialIcons } from '@expo/vector-icons';
 
@@ -126,13 +132,19 @@ export default function MainTabs() {
       <Stack.Screen name="RecordDebt" component={RecordDebtScreen} options={{ presentation: 'modal' }} />
       <Stack.Screen name="CreateBranch" component={BranchCreateScreen} options={{ presentation: 'modal' }} />
       <Stack.Screen name="BranchList" component={BranchListScreen} options={{ presentation: 'modal' }} />
+      <Stack.Screen name="BranchDetail" component={BranchDetailScreen} options={{ presentation: 'modal' }} />
+      <Stack.Screen name="AuditLogs" component={AuditLogScreen} options={{ presentation: 'modal' }} />
+      <Stack.Screen name="StockTransfer" component={StockTransferScreen} options={{ presentation: 'modal' }} />
+      <Stack.Screen name="TeamManagement" component={TeamManagementScreen} options={{ presentation: 'modal' }} />
       <Stack.Screen name="CreateWorkspace" component={WorkspaceSetupScreen} options={{ presentation: 'modal' }} />
-      <Stack.Screen name="Subscription" component={SubscriptionScreen} options={{ presentation: 'modal' }} />
+      <Stack.Screen name="JoinWorkspace" component={WorkspaceInvitesScreen} options={{ presentation: 'modal' }} />
       <Stack.Screen name="EditItem" component={EditItemScreen} options={{ presentation: 'modal' }} />
       <Stack.Screen name="Settings" component={SettingsScreen} options={{ presentation: 'modal' }} />
+      <Stack.Screen name="Notifications" component={NotificationsScreen} options={{ presentation: 'modal' }} />
       <Stack.Screen name="CustomerListScreen" component={require('../screens/CustomerListScreen').default} options={{ presentation: 'modal', title: 'Customers' }} />
       <Stack.Screen name="AddCustomerScreen" component={require('../screens/AddCustomerScreen').default} options={{ presentation: 'modal', title: 'Add Customer' }} />
       <Stack.Screen name="EditCustomerScreen" component={require('../screens/EditCustomerScreen').default} options={{ presentation: 'modal', title: 'Edit Customer' }} />
+      <Stack.Screen name="Subscription" component={SubscriptionScreen} options={{ presentation: 'modal' }} />
     </Stack.Navigator>
   );
 }
